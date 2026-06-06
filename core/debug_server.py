@@ -51,6 +51,26 @@ def _html_response(handler: BaseHTTPRequestHandler, body: str, status: int = 200
     handler.wfile.write(encoded)
 
 
+def _text_response(handler: BaseHTTPRequestHandler, body: str, status: int = 200):
+    encoded = body.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/plain; charset=utf-8")
+    handler.send_header("Content-Length", str(len(encoded)))
+    handler.end_headers()
+    handler.wfile.write(encoded)
+
+
+_PUBLIC_PATHS = {
+    "/health",
+    "/privacy",
+    "/terms",
+    "/tiktok/callback",
+    "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
+}
+
+_TIKTOK_SITE_VERIFICATION = "tiktok-developers-site-verification=jfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq"
+
+
 def _sanitize(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
         if ("private" + "_key") in pattern.pattern:
@@ -273,7 +293,7 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             token_query = f"?token={html.escape(query.get('token', [''])[0])}" if query.get("token") else ""
-            if parsed.path != "/health" and not _authorized(query):
+            if parsed.path not in _PUBLIC_PATHS and not _authorized(query):
                 _json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
 
@@ -292,6 +312,8 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _html_response(self, _terms_html())
             elif parsed.path == "/tiktok/callback":
                 _html_response(self, _tiktok_callback_html(query))
+            elif parsed.path == "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt":
+                _text_response(self, _TIKTOK_SITE_VERIFICATION)
             else:
                 _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
 
