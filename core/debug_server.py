@@ -66,6 +66,8 @@ _PUBLIC_PATHS = {
     "/terms",
     "/tiktok/demo",
     "/tiktok/callback",
+    "/tiktok/callback/",
+    "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
     "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
 }
 
@@ -353,9 +355,12 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _html_response(self, _terms_html())
             elif parsed.path == "/tiktok/demo":
                 _html_response(self, _tiktok_demo_html())
-            elif parsed.path == "/tiktok/callback":
+            elif parsed.path in {"/tiktok/callback", "/tiktok/callback/"}:
                 _html_response(self, _tiktok_callback_html(query))
-            elif parsed.path == "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt":
+            elif parsed.path in {
+                "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
+                "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
+            }:
                 _text_response(self, _TIKTOK_SITE_VERIFICATION)
             else:
                 _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
