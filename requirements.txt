@@ -1,0 +1,43 @@
+# Core
+python-dotenv>=1.0.0
+python-telegram-bot>=20.0
+APScheduler>=3.10.0
+click>=8.1.0
+rich>=13.0.0
+
+# Logging
+loguru>=0.7.0
+
+# Retry
+tenacity>=8.2.0
+
+# HTTP
+requests>=2.31.0
+
+# Images
+Pillow>=10.0.0
+imagehash>=4.3.1
+
+# AI
+openai>=1.0.0
+
+# Google
+gspread>=6.0.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
+# Scraping + TikTok browser automation
+playwright>=1.40.0
+
+# Reddit
+praw>=7.7.0
+
+# TikTok (browser-cookie fallback for video uploads)
+tiktok-uploader>=0.1.0
+
+# Note: ffmpeg must be installed system-wide (not via pip).
+# YouTube publisher uses subprocess ffmpeg to build a simple image slideshow.
+# Windows: winget install ffmpeg
+# macOS:   brew install ffmpeg
+# Linux:   sudo apt install ffmpeg

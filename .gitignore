@@ -1,0 +1,25 @@
+# Credentiale — NICIODATA pe GitHub
+.env
+config/service_account.json
+data/youtube_token.json
+data/tiktok_cookies.json
+
+# Date locale
+data/temp/
+data/logs/
+data/fashion_bot.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Fisiere test/debug
+test_build.py
+generate_preview.py
+preview_post.py
+post_preview.html
+inspect_mulebuy*.py
