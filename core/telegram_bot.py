@@ -81,6 +81,16 @@ async def _run_in_thread(fn, *args):
     return await loop.run_in_executor(_executor, fn, *args)
 
 
+def _positive_int_arg(context: ContextTypes.DEFAULT_TYPE, default: int, maximum: int) -> int:
+    if not context.args:
+        return default
+    try:
+        value = int(context.args[0])
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, maximum))
+
+
 def _format_preview(pkg) -> str:
     lines = [
         f"*Post ID:* {pkg.post_id}",
@@ -176,16 +186,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != settings.telegram_chat_id:
         return
     await update.message.reply_text(
-        "👋 *Fashion Affiliate Bot*\n\n"
+        "*Fashion Affiliate Bot*\n\n"
         "Comenzi disponibile:\n"
-        "/run — Sesiunea de azi (3 posturi)\n"
-        "/status — Statistici\n"
-        "/postqueue — Publica posturile din coada\n"
-        "/scrape — Scrape poze noi Pinterest\n"
-        "/scrapeproducts — Scrape produse noi Mulebuy",
+        "/run - Sesiunea de azi (3 posturi)\n"
+        "/status - Statistici\n"
+        "/postqueue - Publica posturile din coada\n"
+        "/scrape [count] - Scrape poze noi Pinterest\n"
+        "/scrapeproducts [per_category] - Scrape produse noi Mulebuy\n"
+        "/syncsheet - Sync Google Sheet in SQLite",
         parse_mode=ParseMode.MARKDOWN,
     )
-
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
@@ -235,31 +245,53 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
         return
-    await update.message.reply_text("🔍 Scrap Pinterest... (1-2 minute)")
+    count = _positive_int_arg(context, default=15, maximum=100)
+    await update.message.reply_text(f"Scrape Pinterest pentru {count} poze... (1-5 minute)")
 
     def _do_scrape():
         from scrapers.pinterest_scraper import scrape_batch
-        return scrape_batch(target_count=15)
+        return scrape_batch(target_count=count)
 
     total = await _run_in_thread(_do_scrape)
-    await update.message.reply_text(f"✅ Salvate {total} poze noi de pe Pinterest.")
-
+    await update.message.reply_text(f"Salvate {total} poze noi de pe Pinterest.")
 
 async def cmd_scrapeproducts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
         return
-    await update.message.reply_text("🔍 Scrap Mulebuy produse... (5-10 minute)")
+    per_category = _positive_int_arg(context, default=20, maximum=100)
+    await update.message.reply_text(
+        f"Scrape Mulebuy produse ({per_category}/categorie)... (5-15 minute)"
+    )
 
     def _do_scrape():
         from scrapers.mulebuy_scraper import scrape_mulebuy
-        return scrape_mulebuy(per_category=20)
+        return scrape_mulebuy(per_category=per_category)
 
     products = await _run_in_thread(_do_scrape)
-    await update.message.reply_text(f"✅ Salvate {len(products)} produse noi din Mulebuy.")
+    await update.message.reply_text(f"Salvate {len(products)} produse noi din Mulebuy.")
 
 
-# ── Session flow ──────────────────────────────────────────────────────────────
+async def cmd_syncsheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await update.message.reply_text("Sync Google Sheet in SQLite...")
+
+    def _do_sync():
+        from sheets.google_sheets import get_sheets_client
+        products = get_sheets_client().get_all_products(force_refresh=True)
+        get_db().sync_products(products)
+        return len(products)
+
+    try:
+        count = await _run_in_thread(_do_sync)
+        await update.message.reply_text(f"Sync complet: {count} produse.")
+    except Exception as exc:
+        logger.exception("Google Sheet sync failed")
+        await update.message.reply_text(f"Eroare sync Google Sheet: {exc}")
+
+# Session flow ──────────────────────────────────────────────────────────────
 
 async def _ask_category(bot: Bot, chat_id: int):
     session = _sessions.get(chat_id, {})
@@ -441,6 +473,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("postqueue", cmd_postqueue))
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
+    app.add_handler(CommandHandler("syncsheet", cmd_syncsheet))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     return app
