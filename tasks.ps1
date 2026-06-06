@@ -25,7 +25,11 @@ function Invoke-Step {
     )
     Write-Host ""
     Write-Host "==> $Name" -ForegroundColor Cyan
+    $global:LASTEXITCODE = 0
     & $Script
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE"
+    }
 }
 
 switch ($Task) {

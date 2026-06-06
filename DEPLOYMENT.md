@@ -121,6 +121,20 @@ Full local readiness check:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 verify
 ```
 
+Debug UI:
+
+- The server starts a small read-only dashboard on Railway's `$PORT`.
+- In Railway, generate a public domain from service networking if you want to
+  open it in the browser.
+- Optional protection:
+
+```env
+ENABLE_DEBUG_UI=true
+DEBUG_UI_TOKEN=choose-a-long-random-token
+```
+
+If `DEBUG_UI_TOKEN` is set, open the dashboard with `?token=YOUR_TOKEN`.
+
 Cloud:
 
 ```text

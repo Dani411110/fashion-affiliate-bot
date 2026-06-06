@@ -16,6 +16,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config.settings import get_settings
+from core.debug_server import start_debug_server
 from core.telegram_bot import build_application, scheduled_post_job
 from utils.logger import get_logger
 
@@ -44,6 +45,7 @@ async def main():
         settings.enable_tiktok,
         settings.enable_youtube,
     )
+    debug_server = start_debug_server(settings)
 
     app = build_application()
     bot = app.bot
@@ -94,6 +96,8 @@ async def main():
             pass
         finally:
             scheduler.shutdown()
+            if debug_server:
+                debug_server.shutdown()
             await app.updater.stop()
             await app.stop()
             await app.shutdown()

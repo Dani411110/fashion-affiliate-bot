@@ -246,6 +246,10 @@ Before pushing or deploying, run the full local readiness check:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 verify
 ```
 
+The Railway server also exposes a small read-only debug dashboard on `$PORT`.
+Generate a Railway public domain for the service to open it in a browser.
+Set `DEBUG_UI_TOKEN` to require `?token=...` on dashboard/API routes.
+
 ---
 
 ## 13. Phase 2 Migration Guide

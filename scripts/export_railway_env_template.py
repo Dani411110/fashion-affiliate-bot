@@ -31,6 +31,7 @@ SAFE_VALUE_KEYS = {
     "SQLITE_PATH",
     "MUSIC_FOLDER",
     "TEMP_FOLDER",
+    "ENABLE_DEBUG_UI",
 }
 
 LOCAL_ONLY_KEYS = {
@@ -60,6 +61,7 @@ OPTIONAL_PLACEHOLDERS = {
     "YOUTUBE_CLIENT_SECRETS_JSON": "<optional until YouTube enabled>",
     "TIKTOK_ACCESS_TOKEN": "<optional until TikTok API enabled>",
     "PIXABAY_API_KEY": "<optional: only needed for external music fallback>",
+    "DEBUG_UI_TOKEN": "<optional: protect debug UI with ?token=...>",
 }
 
 ORDER = [
@@ -101,6 +103,8 @@ ORDER = [
     "SQLITE_PATH",
     "MUSIC_FOLDER",
     "TEMP_FOLDER",
+    "ENABLE_DEBUG_UI",
+    "DEBUG_UI_TOKEN",
 ]
 
 
@@ -119,6 +123,8 @@ def parse_env_file(path: Path) -> dict[str, str]:
 
 
 def template_value(key: str, example_values: dict[str, str], local_values: dict[str, str]) -> str:
+    if key == "ENABLE_DEBUG_UI":
+        return example_values.get(key) or local_values.get(key) or "true"
     if key in REQUIRED_PLACEHOLDERS:
         return REQUIRED_PLACEHOLDERS[key]
     if key in OPTIONAL_PLACEHOLDERS:
