@@ -66,6 +66,15 @@ def _category_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
+def _image_count_keyboard(category_num: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(str(count), callback_data=f"count:{category_num}:{count}")
+            for count in range(5, 9)
+        ]
+    ])
+
+
 def _approval_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -129,16 +138,31 @@ async def _send_post_preview(bot: Bot, chat_id: int, pkg):
     """Trimite preview complet al postului cu butoane de aprobare."""
     _pending[pkg.post_id] = pkg
 
-    # Trimite poza Pinterest
-    pinterest_path = Path(pkg.pinterest_image_path)
-    if pinterest_path.exists():
-        try:
-            with open(pinterest_path, "rb") as f:
-                await bot.send_photo(chat_id=chat_id, photo=f, caption="📸 Imagine outfit inspiratie")
-        except Exception:
-            logger.warning("Nu am putut trimite poza Pinterest")
+    image_paths = [Path(p) for p in pkg.all_images if p and Path(p).exists()]
+    try:
+        if len(image_paths) >= 2:
+            files = []
+            media = []
+            try:
+                for idx, path in enumerate(image_paths[:10], start=1):
+                    f = open(path, "rb")
+                    files.append(f)
+                    media.append(
+                        InputMediaPhoto(
+                            media=f,
+                            caption=f"Preview carusel ({len(image_paths)} poze)" if idx == 1 else None,
+                        )
+                    )
+                await bot.send_media_group(chat_id=chat_id, media=media)
+            finally:
+                for f in files:
+                    f.close()
+        elif image_paths:
+            with open(image_paths[0], "rb") as f:
+                await bot.send_photo(chat_id=chat_id, photo=f, caption="Preview carusel")
+    except Exception:
+        logger.warning("Nu am putut trimite preview-ul complet de imagini")
 
-    # Trimite textul cu detaliile postului
     text = _format_preview(pkg)
     await bot.send_message(
         chat_id=chat_id,
@@ -146,7 +170,6 @@ async def _send_post_preview(bot: Bot, chat_id: int, pkg):
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=_approval_keyboard(pkg.post_id),
     )
-
 
 async def _publish_package(pkg):
     """Publica postul pe toate platformele activate."""
@@ -330,26 +353,44 @@ async def _ask_category(bot: Bot, chat_id: int):
 async def _handle_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_num: int):
     query = update.callback_query
     await query.answer()
+    category_name = CATEGORY_NAMES[category_num]
+
+    await query.edit_message_text(
+        f"*{category_name}*\n\nCate poze vrei in carusel?",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_image_count_keyboard(category_num),
+    )
+
+
+async def _handle_image_count(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    category_num: int,
+    image_count: int,
+):
+    query = update.callback_query
+    await query.answer()
     chat_id = query.message.chat_id
     category_name = CATEGORY_NAMES[category_num]
 
-    await query.edit_message_text(f"⏳ Construiesc post *{category_name}*...", parse_mode=ParseMode.MARKDOWN)
+    await query.edit_message_text(
+        f"Construiesc post *{category_name}* cu *{image_count} poze*...",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
     def _build():
         from core.post_builder import PostBuilder
-        return PostBuilder().build_post(category_name)
+        return PostBuilder().build_post(category_name, image_count=image_count)
 
     try:
         pkg = await _run_in_thread(_build)
         await _send_post_preview(context.bot, chat_id, pkg)
     except Exception as exc:
         logger.exception("Build post failed")
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ Eroare la construire post: {exc}")
-        # Skip to next post
+        await context.bot.send_message(chat_id=chat_id, text=f"Eroare la construire post: {exc}")
         if chat_id in _sessions:
             _sessions[chat_id]["post_index"] += 1
             await _ask_category(context.bot, chat_id)
-
 
 async def _handle_approve(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
     query = update.callback_query
@@ -459,6 +500,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data.startswith("cat:"):
         await _handle_category(update, context, int(data.split(":")[1]))
+    elif data.startswith("count:"):
+        _, category_num, image_count = data.split(":")
+        await _handle_image_count(
+            update,
+            context,
+            int(category_num),
+            int(image_count),
+        )
     elif data.startswith("approve:"):
         await _handle_approve(update, context, int(data.split(":")[1]))
     elif data.startswith("reject:"):

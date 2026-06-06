@@ -49,10 +49,18 @@ class PostBuilder:
         self._settings = get_settings()
         self._db = get_db()
 
-    def build_post(self, category_name: str) -> PostPackage:
+    def build_post(
+        self,
+        category_name: str,
+        image_count: Optional[int] = None,
+    ) -> PostPackage:
         """Build a complete PostPackage (carousel, no video) for the given category."""
         logger.info("=== Building post: category='{}' ===", category_name)
         start = time.time()
+        product_count: Optional[int] = None
+        if image_count is not None:
+            image_count = max(5, min(int(image_count), 8))
+            product_count = image_count - 1
 
         # Step 1 — Load products from Mulebuy cache (scrape if needed)
         logger.info("[1/7] Loading products from Mulebuy cache")
@@ -65,7 +73,10 @@ class PostBuilder:
         exclude_ids = self._db.get_recently_used_product_rows(last_n_posts=10)
         selector = get_category_selector()
         selected_products = selector.select_by_name(
-            category_name, cached_products, exclude_ids=exclude_ids
+            category_name,
+            cached_products,
+            count=product_count,
+            exclude_ids=exclude_ids,
         )
         if not selected_products:
             raise RuntimeError("CategorySelector returned no products")
