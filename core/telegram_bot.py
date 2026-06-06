@@ -32,6 +32,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 from telegram.constants import ParseMode
 
@@ -89,6 +91,16 @@ def _positive_int_arg(context: ContextTypes.DEFAULT_TYPE, default: int, maximum:
     except (TypeError, ValueError):
         return default
     return max(1, min(value, maximum))
+
+
+async def _send_start_menu(update: Update):
+    await update.message.reply_text(
+        "*Fashion Affiliate Bot*\n\n"
+        "Alege ce tip de post vrei sa construiesc acum. Iti trimit preview-ul, "
+        "apoi alegi daca il postam, il respingem sau regeneram captionul.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_category_keyboard(),
+    )
 
 
 def _format_preview(pkg) -> str:
@@ -175,7 +187,8 @@ async def _publish_package(pkg):
         return r
 
     results = await _run_in_thread(_do_publish)
-    get_db().mark_post_status(pkg.post_id, "posted")
+    if any(result.success for _, result in results):
+        get_db().mark_post_status(pkg.post_id, "posted")
     return results
 
 
@@ -185,17 +198,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
         return
-    await update.message.reply_text(
-        "*Fashion Affiliate Bot*\n\n"
-        "Comenzi disponibile:\n"
-        "/run - Sesiunea de azi (3 posturi)\n"
-        "/status - Statistici\n"
-        "/postqueue - Publica posturile din coada\n"
-        "/scrape [count] - Scrape poze noi Pinterest\n"
-        "/scrapeproducts [per_category] - Scrape produse noi Mulebuy\n"
-        "/syncsheet - Sync Google Sheet in SQLite",
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    await _send_start_menu(update)
+
+
+async def cmd_dot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await _send_start_menu(update)
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
@@ -356,12 +366,22 @@ async def _handle_approve(update: Update, context: ContextTypes.DEFAULT_TYPE, po
 
     try:
         results = await _publish_package(pkg)
-        lines = ["✅ *Publicat!*\n"]
-        for platform, result in results:
-            if result.success:
-                lines.append(f"✅ {platform.upper()}: {result.url or result.platform_post_id}")
-            else:
-                lines.append(f"❌ {platform.upper()}: {result.error[:80]}")
+        if not results:
+            lines = [
+                "*Post aprobat si pastrat in coada.*",
+                "Nicio platforma nu este activa acum. Activeaza o platforma in .env/Railway, apoi publica.",
+            ]
+        elif any(result.success for _, result in results):
+            lines = ["*Publicat pe platformele disponibile!*\n"]
+            for platform, result in results:
+                if result.success:
+                    lines.append(f"{platform.upper()}: {result.url or result.platform_post_id}")
+                else:
+                    lines.append(f"{platform.upper()} failed: {result.error[:80]}")
+        else:
+            lines = ["*Post aprobat, dar publicarea a esuat pe toate platformele.*\n"]
+            for platform, result in results:
+                lines.append(f"{platform.upper()} failed: {result.error[:80]}")
         await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as exc:
         logger.exception("Publish failed")
@@ -474,6 +494,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
     app.add_handler(CommandHandler("syncsheet", cmd_syncsheet))
+    app.add_handler(MessageHandler(filters.Regex(r"^\s*\.start\s*$"), cmd_dot_start))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     return app
