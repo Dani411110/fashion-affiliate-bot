@@ -29,9 +29,18 @@ Context:
 - Products in this post: {product_summary}
 - Platform: {platform}
 
-For Reddit: title should be informative (e.g. "Found this amazing Korean streetwear look on Mulebuy").
-For TikTok/Instagram: title is the first hook line of the caption.
-For YouTube: title should be SEO-friendly.
+Style rules:
+- Sound like a real fashion creator, not a sales page.
+- Keep the CTA soft and useful: "links/products below", "shop list below", or similar.
+- Do not overpromise quality, authenticity, shipping speed, or brand identity.
+- Mention the aesthetic/vibe first, then connect the products naturally.
+- Avoid generic lines like "you NEED this" unless the platform is TikTok and it fits.
+
+Platform rules:
+- Reddit: title should be informative and not clickbait. Caption can be practical and link-focused.
+- TikTok: punchy hook, short lines, creator tone, 1 subtle CTA.
+- Instagram: polished caption, outfit/vibe language, scannable product mention.
+- YouTube: SEO-friendly title and description for Shorts.
 
 Hashtags should reflect the aesthetic, items, and target audience."""
 

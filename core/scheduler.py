@@ -139,6 +139,7 @@ def _publish_package(package: PostPackage):
         console.print("[yellow]No platforms enabled — skipping publish.[/yellow]")
         return
 
+    any_success = False
     for publisher in publishers:
         with Progress(
             SpinnerColumn(),
@@ -150,6 +151,7 @@ def _publish_package(package: PostPackage):
             progress.remove_task(task)
 
         if result.success:
+            any_success = True
             console.print(
                 f"[green]✓ {publisher.platform_name.upper()}[/green]: {result.url or result.platform_post_id}"
             )
@@ -158,8 +160,9 @@ def _publish_package(package: PostPackage):
                 f"[red]✗ {publisher.platform_name.upper()}[/red]: {result.error}"
             )
 
-    db = get_db()
-    db.mark_post_status(package.post_id, "posted")
+    if any_success:
+        db = get_db()
+        db.mark_post_status(package.post_id, "posted")
 
 
 class Scheduler:
@@ -243,36 +246,12 @@ class Scheduler:
         slot_times = [settings.post_time_1, settings.post_time_2, settings.post_time_3]
 
         for post in approved_posts:
-            from core.post_builder import PostPackage
-            import json
+            from core.post_builder import package_from_db_record
 
             record = self._db.get_post(post["id"])
             if not record:
                 continue
 
-            # Build a minimal PostPackage from the DB record for publishing
-            captions_raw = record.get("caption", "") or ""
-            product_ids = json.loads(record.get("product_ids", "[]"))
-
-            cached_products = {
-                p["sheet_row_index"]: p
-                for p in self._db.get_all_cached_products()
-            }
-            products = [cached_products[pid] for pid in product_ids if pid in cached_products]
-
-            pkg = PostPackage(
-                post_id=record["id"],
-                category=record["category"],
-                pinterest_image_path="",
-                product_images=[],
-                products=products,
-                captions={},
-                formatted_captions={"reddit": captions_raw},
-                video_path=record.get("video_path", ""),
-                drive_folder_id=record.get("drive_folder_id", ""),
-                drive_video_url="",
-                status="approved",
-            )
-
+            pkg = package_from_db_record(record)
             logger.info("Publishing queued post {}", pkg.post_id)
             _publish_package(pkg)

@@ -164,11 +164,39 @@ python main.py setup
 
 # Show database statistics
 python main.py status
+
+# Deployment/ops checks
+python main.py doctor
+python main.py backup-db
+python main.py restore-db data/backups/fashion_bot_YYYYMMDD_HHMMSS.db
+python main.py cleanup-temp --days 14
+python main.py write-status-report
 ```
 
 ---
 
-## 10. Music Folder Setup
+## 10. Telegram Operator Commands
+
+```text
+.start                  Build one post: category -> 5/6/7/8 images -> preview
+.help                   Show commands and flow
+.status                 Database counts
+.queue                  Recent posts and queue state
+.platforms              Platform toggles and credential state
+.scrape 50              Scrape Pinterest images
+.scrapeproducts 30      Scrape Mulebuy products per category
+.syncsheet              Sync Google Sheet products to SQLite
+.run                    3-post session
+.postqueue              Publish approved queued posts when platforms are enabled
+```
+
+The preview sends the full carousel album, product links, and platform captions.
+If no platform is enabled, approval keeps the post in the queue instead of claiming
+it was published.
+
+---
+
+## 11. Music Folder Setup
 
 Place royalty-free MP3 files in `data/music/`. Name them with the mood in the filename:
 
@@ -193,7 +221,7 @@ If Pixabay is unavailable, a 60-second silent audio track is generated via ffmpe
 
 ---
 
-## 11. Railway Deployment
+## 12. Railway Deployment
 
 Railway can run the bot with SQLite if you attach a persistent volume to the
 service before production use.
@@ -212,7 +240,7 @@ Local development still defaults to `data/fashion_bot.db`.
 
 ---
 
-## 12. Phase 2 Migration Guide
+## 13. Phase 2 Migration Guide
 
 The codebase is pre-structured for a server + Telegram bot migration. Every file that changes has a `# PHASE 2 MIGRATION:` comment block describing the swap.
 

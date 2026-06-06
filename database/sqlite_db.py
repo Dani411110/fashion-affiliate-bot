@@ -9,6 +9,7 @@ SQLite database layer for the fashion affiliate bot.
 """
 
 import json
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -77,6 +78,14 @@ class SqliteDatabase:
                     hashtags            TEXT,
                     video_path          TEXT,
                     drive_folder_id     TEXT,
+                    pinterest_local_path TEXT,
+                    pinterest_image_id  INTEGER,
+                    image_paths_json    TEXT    NOT NULL DEFAULT '[]',
+                    product_image_paths_json TEXT NOT NULL DEFAULT '[]',
+                    public_image_urls_json TEXT NOT NULL DEFAULT '[]',
+                    captions_json       TEXT    NOT NULL DEFAULT '{}',
+                    formatted_captions_json TEXT NOT NULL DEFAULT '{}',
+                    carousel_image_count INTEGER NOT NULL DEFAULT 0,
                     status              TEXT    NOT NULL DEFAULT 'draft',
                     created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
                     approved_at         TEXT,
@@ -105,7 +114,27 @@ class SqliteDatabase:
                     used_at     TEXT NOT NULL DEFAULT (datetime('now'))
                 );
             """)
+            self._ensure_post_columns(conn)
         logger.debug("SQLite schema initialised at {}", self.db_path)
+
+    def _ensure_post_columns(self, conn: sqlite3.Connection):
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(posts)").fetchall()
+        }
+        columns = {
+            "pinterest_local_path": "TEXT",
+            "pinterest_image_id": "INTEGER",
+            "image_paths_json": "TEXT NOT NULL DEFAULT '[]'",
+            "product_image_paths_json": "TEXT NOT NULL DEFAULT '[]'",
+            "public_image_urls_json": "TEXT NOT NULL DEFAULT '[]'",
+            "captions_json": "TEXT NOT NULL DEFAULT '{}'",
+            "formatted_captions_json": "TEXT NOT NULL DEFAULT '{}'",
+            "carousel_image_count": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, ddl in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE posts ADD COLUMN {column} {ddl}")
 
     # ── Pinterest images ──────────────────────────────────────────────────
 
@@ -229,13 +258,24 @@ class SqliteDatabase:
         hashtags: str,
         video_path: str,
         drive_folder_id: str,
+        pinterest_local_path: str = "",
+        pinterest_image_id: Optional[int] = None,
+        image_paths: Optional[List[str]] = None,
+        product_image_paths: Optional[List[str]] = None,
+        public_image_urls: Optional[List[str]] = None,
+        captions_json: Optional[Dict[str, Any]] = None,
+        formatted_captions_json: Optional[Dict[str, Any]] = None,
+        carousel_image_count: int = 0,
     ) -> int:
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO posts
                    (category, pinterest_image_url, product_ids, caption, hashtags,
-                    video_path, drive_folder_id, status)
-                   VALUES (?,?,?,?,?,?,?,'draft')""",
+                    video_path, drive_folder_id, pinterest_local_path,
+                    pinterest_image_id, image_paths_json, product_image_paths_json,
+                    public_image_urls_json, captions_json, formatted_captions_json,
+                    carousel_image_count, status)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft')""",
                 (
                     category,
                     pinterest_image_url,
@@ -244,6 +284,14 @@ class SqliteDatabase:
                     hashtags,
                     video_path,
                     drive_folder_id,
+                    pinterest_local_path,
+                    pinterest_image_id,
+                    json.dumps(image_paths or []),
+                    json.dumps(product_image_paths or []),
+                    json.dumps(public_image_urls or []),
+                    json.dumps(captions_json or {}),
+                    json.dumps(formatted_captions_json or {}),
+                    carousel_image_count,
                 ),
             )
             return cur.lastrowid
@@ -260,6 +308,14 @@ class SqliteDatabase:
             rows = conn.execute(
                 "SELECT * FROM posts WHERE status=? ORDER BY created_at ASC",
                 (status,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_recent_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM posts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -282,12 +338,37 @@ class SqliteDatabase:
             conn.execute(
                 f"UPDATE posts SET {set_clause} WHERE id=?", params
             )
+            if status == "approved":
+                row = conn.execute(
+                    "SELECT pinterest_image_id FROM posts WHERE id=?", (post_id,)
+                ).fetchone()
+                if row and row["pinterest_image_id"]:
+                    conn.execute(
+                        "UPDATE pinterest_images SET used=1, used_at=? WHERE id=?",
+                        (now, row["pinterest_image_id"]),
+                    )
 
-    def update_post_captions(self, post_id: int, caption: str, hashtags: str):
+    def update_post_captions(
+        self,
+        post_id: int,
+        caption: str,
+        hashtags: str,
+        captions_json: Optional[Dict[str, Any]] = None,
+        formatted_captions_json: Optional[Dict[str, Any]] = None,
+    ):
+        set_clause = "caption=?, hashtags=?"
+        params: List[Any] = [caption, hashtags]
+        if captions_json is not None:
+            set_clause += ", captions_json=?"
+            params.append(json.dumps(captions_json))
+        if formatted_captions_json is not None:
+            set_clause += ", formatted_captions_json=?"
+            params.append(json.dumps(formatted_captions_json))
+        params.append(post_id)
         with self._connect() as conn:
             conn.execute(
-                "UPDATE posts SET caption=?, hashtags=? WHERE id=?",
-                (caption, hashtags, post_id),
+                f"UPDATE posts SET {set_clause} WHERE id=?",
+                params,
             )
 
     def record_used_products(self, post_id: int, sheet_rows: List[int]):
@@ -371,6 +452,26 @@ class SqliteDatabase:
             "pinterest_unused": pinterest_unused,
             "products_cached": products_cached,
         }
+
+    def backup_to(self, dest_path: Path) -> Path:
+        dest_path = Path(dest_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.db_path, dest_path)
+        wal = self.db_path.with_suffix(self.db_path.suffix + "-wal")
+        shm = self.db_path.with_suffix(self.db_path.suffix + "-shm")
+        if wal.exists():
+            shutil.copy2(wal, dest_path.with_suffix(dest_path.suffix + "-wal"))
+        if shm.exists():
+            shutil.copy2(shm, dest_path.with_suffix(dest_path.suffix + "-shm"))
+        return dest_path
+
+    def restore_from(self, source_path: Path):
+        source_path = Path(source_path)
+        if not source_path.exists():
+            raise FileNotFoundError(source_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, self.db_path)
+        self._init_schema()
 
 
 _db_instance: Optional[SqliteDatabase] = None

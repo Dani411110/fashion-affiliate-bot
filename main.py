@@ -1,6 +1,8 @@
 """CLI entry point for the Fashion Affiliate Content Automation Bot."""
 
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -9,6 +11,15 @@ from rich.table import Table
 from rich import box
 
 console = Console()
+
+
+def _platform_rows(settings):
+    return [
+        ("Reddit", settings.enable_reddit, bool(settings.reddit_client_id)),
+        ("Instagram", settings.enable_instagram, bool(settings.instagram_access_token and settings.instagram_user_id)),
+        ("TikTok", settings.enable_tiktok, bool(settings.tiktok_access_token or Path(settings.tiktok_cookies_path).exists())),
+        ("YouTube", settings.enable_youtube, bool(settings.youtube_client_secrets_json)),
+    ]
 
 
 @click.group()
@@ -79,6 +90,131 @@ def scrape_products(categories, per_category):
     console.print(f"[cyan]Scraping Mulebuy products ({per_category} per category)…[/cyan]")
     products = scrape_mulebuy(categories=cats, per_category=per_category)
     console.print(f"[green]Done. Scraped {len(products)} products.[/green]")
+
+
+@cli.command()
+@click.option("--live", is_flag=True, help="Also perform live API checks where safe.")
+def doctor(live: bool):
+    """Run deployment-readiness checks without mutating content."""
+    from config.settings import get_settings
+    from database.sqlite_db import get_db
+
+    s = get_settings()
+    db = get_db()
+    stats = db.get_stats()
+
+    console.print("\n[bold cyan]Fashion Bot Doctor[/bold cyan]\n")
+    table = Table(box=box.SIMPLE_HEAVY)
+    table.add_column("Check", style="bold cyan")
+    table.add_column("Status")
+    table.add_column("Details")
+
+    railway_volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "")
+    table.add_row("SQLite path", "OK", str(s.sqlite_path))
+    table.add_row("Railway volume", "ON" if railway_volume else "OFF", railway_volume or "not detected")
+    table.add_row("DB stats", "OK", f"{stats['products_cached']} products, {stats['pinterest_unused']}/{stats['pinterest_total']} Pinterest unused")
+    table.add_row("Dockerfile", "OK" if Path("Dockerfile").exists() else "MISSING", "Docker build entrypoint")
+    table.add_row("railway.toml", "OK" if Path("railway.toml").exists() else "MISSING", "Railway config")
+    table.add_row(".dockerignore", "OK" if Path(".dockerignore").exists() else "MISSING", "Protects secrets from image context")
+
+    required = [
+        ("OPENAI_API_KEY", s.openai_api_key),
+        ("GOOGLE_SERVICE_ACCOUNT_JSON", s.google_service_account_json),
+        ("GOOGLE_SHEET_ID", s.google_sheet_id),
+        ("TELEGRAM_BOT_TOKEN", s.telegram_bot_token),
+        ("TELEGRAM_CHAT_ID", str(s.telegram_chat_id)),
+    ]
+    for key, value in required:
+        table.add_row(key, "OK" if value else "MISSING", "set" if value else "empty")
+
+    for name, enabled, configured in _platform_rows(s):
+        status_text = "ON" if enabled else "OFF"
+        detail = "configured" if configured else "missing credentials"
+        table.add_row(name, status_text, detail)
+
+    if live:
+        try:
+            import openai
+            openai.OpenAI(api_key=s.openai_api_key).models.list()
+            table.add_row("OpenAI live", "OK", "models.list succeeded")
+        except Exception as exc:
+            table.add_row("OpenAI live", "FAIL", str(exc)[:120])
+
+    console.print(table)
+
+
+@cli.command("backup-db")
+@click.option("--dest", default=None, help="Destination .db path. Defaults to data/backups timestamp.")
+def backup_db(dest):
+    """Backup the SQLite database file."""
+    from database.sqlite_db import get_db
+
+    target = Path(dest) if dest else Path("data/backups") / f"fashion_bot_{datetime.now():%Y%m%d_%H%M%S}.db"
+    out = get_db().backup_to(target)
+    console.print(f"[green]DB backup written:[/green] {out}")
+
+
+@cli.command("restore-db")
+@click.argument("source")
+def restore_db(source):
+    """Restore SQLite from a backup path."""
+    from database.sqlite_db import get_db
+
+    get_db().restore_from(Path(source))
+    console.print(f"[green]DB restored from:[/green] {source}")
+
+
+@cli.command("cleanup-temp")
+@click.option("--days", default=3, show_default=True, help="Delete temp files older than this many days.")
+def cleanup_temp(days: int):
+    """Delete old temp files without touching the SQLite DB."""
+    from config.settings import get_settings
+
+    cutoff = datetime.now().timestamp() - (days * 86400)
+    root = get_settings().temp_folder
+    removed = 0
+    if root.exists():
+        for path in root.rglob("*"):
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+    console.print(f"[green]Removed {removed} old temp file(s).[/green]")
+
+
+@cli.command("write-status-report")
+def write_status_report():
+    """Write a local PROJECT_STATUS.md snapshot."""
+    from config.settings import get_settings
+    from database.sqlite_db import get_db
+
+    s = get_settings()
+    stats = get_db().get_stats()
+    lines = [
+        "# Fashion Bot Status",
+        "",
+        f"Generated: {datetime.now().isoformat(timespec='seconds')}",
+        "",
+        "## Database",
+        f"- SQLite path: `{s.sqlite_path}`",
+        f"- Products cached: {stats['products_cached']}",
+        f"- Pinterest images: {stats['pinterest_unused']}/{stats['pinterest_total']} unused/total",
+        f"- Posts total: {stats['posts_total']}",
+        "",
+        "## Platform Toggles",
+    ]
+    for name, enabled, configured in _platform_rows(s):
+        lines.append(f"- {name}: {'ON' if enabled else 'OFF'} ({'configured' if configured else 'missing credentials'})")
+    lines += [
+        "",
+        "## Next Manual Steps",
+        "- Create private GitHub repo and add remote.",
+        "- Push branch `main`.",
+        "- Deploy Railway from GitHub.",
+        "- Add Railway env vars and persistent volume.",
+        "- Test Telegram `.status` from cloud.",
+    ]
+    Path("PROJECT_STATUS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    console.print("[green]Wrote PROJECT_STATUS.md[/green]")
 
 
 @cli.command()

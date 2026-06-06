@@ -7,6 +7,7 @@ Central post builder — orchestrates all modules into a complete PostPackage.
 # All file paths become URLs pointing to cloud storage (Supabase Storage).
 """
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,28 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _make_product_placeholder(product: Dict[str, Any], dest: Path):
+    from PIL import Image, ImageDraw, ImageFont
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", (1080, 1920), color=(245, 245, 242))
+    draw = ImageDraw.Draw(img)
+    title = str(product.get("name", "Product"))[:80]
+    price = f"${float(product.get('price', 0) or 0):.2f}"
+    category = str(product.get("category", "")).title()
+    try:
+        font_big = ImageFont.truetype("arial.ttf", 64)
+        font_mid = ImageFont.truetype("arial.ttf", 42)
+    except Exception:
+        font_big = ImageFont.load_default()
+        font_mid = ImageFont.load_default()
+
+    draw.text((90, 760), title, fill=(25, 25, 25), font=font_big)
+    draw.text((90, 875), f"{category}  {price}", fill=(75, 75, 75), font=font_mid)
+    draw.text((90, 1010), "Image unavailable - product kept in carousel", fill=(115, 115, 115), font=font_mid)
+    img.save(dest, quality=92)
+
+
 @dataclass
 class PostPackage:
     post_id: int
@@ -41,6 +64,7 @@ class PostPackage:
     drive_folder_id: str
     # Public URLs for each image (Drive), used by Instagram/TikTok carousel API
     public_image_urls: List[str] = field(default_factory=list)
+    pinterest_image_id: Optional[int] = None
     status: str = "draft"
 
 
@@ -120,10 +144,12 @@ class PostBuilder:
 
         for product in selected_products:
             img_url = product.get("image_url", "")
-            if not img_url:
-                logger.warning("Product '{}' has no image_url — skipping image", product.get("name"))
-                continue
             dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
+            if not img_url:
+                logger.warning("Product '{}' has no image_url - creating placeholder", product.get("name"))
+                _make_product_placeholder(product, dest)
+                product_image_paths.append(str(dest))
+                continue
             try:
                 download_image(img_url, dest)
                 make_vertical(dest)
@@ -131,7 +157,8 @@ class PostBuilder:
                 logger.debug("Downloaded product image: {}", dest.name)
             except Exception:
                 logger.exception("Failed to download product image: {}", img_url[:80])
-
+                _make_product_placeholder(product, dest)
+                product_image_paths.append(str(dest))
         # All images in carousel order: inspiration first, then products
         all_images = [str(pinterest_image_path)] + product_image_paths
 
@@ -197,11 +224,18 @@ class PostBuilder:
             hashtags=summary_hashtags,
             video_path="",          # no video — carousel mode
             drive_folder_id=drive_folder_id,
+            pinterest_local_path=str(pinterest_image_path),
+            pinterest_image_id=pinterest_record["id"],
+            image_paths=all_images,
+            product_image_paths=product_image_paths,
+            public_image_urls=public_image_urls,
+            captions_json=captions,
+            formatted_captions_json=formatted,
+            carousel_image_count=len(all_images),
         )
         self._db.record_used_products(
             post_id, [p["sheet_row_index"] for p in selected_products]
         )
-        self._db.mark_pinterest_image_used(pinterest_record["id"])
 
         elapsed = time.time() - start
         logger.info(
@@ -220,5 +254,56 @@ class PostBuilder:
             formatted_captions=formatted,
             drive_folder_id=drive_folder_id,
             public_image_urls=public_image_urls,
+            pinterest_image_id=pinterest_record["id"],
             status="draft",
         )
+
+
+def package_from_db_record(record: Dict[str, Any]) -> PostPackage:
+    """Rehydrate a PostPackage saved by PostBuilder for queue publishing."""
+    product_ids = json.loads(record.get("product_ids") or "[]")
+    cached_products = {
+        p["sheet_row_index"]: p
+        for p in get_db().get_all_cached_products()
+    }
+    products = [cached_products[pid] for pid in product_ids if pid in cached_products]
+
+    def _json_list(key: str) -> List[str]:
+        try:
+            parsed = json.loads(record.get(key) or "[]")
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+
+    def _json_dict(key: str) -> Dict[str, Any]:
+        try:
+            parsed = json.loads(record.get(key) or "{}")
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    product_images = _json_list("product_image_paths_json")
+    all_images = _json_list("image_paths_json")
+    pinterest_path = record.get("pinterest_local_path") or ""
+    if not all_images and pinterest_path:
+        all_images = [pinterest_path] + product_images
+
+    captions = _json_dict("captions_json")
+    formatted = _json_dict("formatted_captions_json")
+    if not formatted and record.get("caption"):
+        formatted = {"reddit": record.get("caption", "")}
+
+    return PostPackage(
+        post_id=record["id"],
+        category=record["category"],
+        pinterest_image_path=pinterest_path,
+        product_images=product_images,
+        all_images=all_images,
+        products=products,
+        captions=captions,
+        formatted_captions=formatted,
+        drive_folder_id=record.get("drive_folder_id", "") or "",
+        public_image_urls=_json_list("public_image_urls_json"),
+        pinterest_image_id=record.get("pinterest_image_id"),
+        status=record.get("status", "draft"),
+    )

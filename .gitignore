@@ -7,6 +7,7 @@ data/tiktok_cookies.json
 # Date locale
 data/temp/
 data/logs/
+data/backups/
 data/fashion_bot.db
 
 # Python

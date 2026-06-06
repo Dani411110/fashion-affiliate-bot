@@ -172,7 +172,12 @@ class Settings:
             kw.strip()
             for kw in _get(
                 "PINTEREST_KEYWORDS",
-                "streetwear outfit,aesthetic fashion,korean fashion,y2k outfit,coquette style",
+                (
+                    "streetwear outfit,aesthetic fashion,korean fashion,y2k outfit,"
+                    "coquette style,dark academia outfit,old money outfit,"
+                    "clean girl outfit,airport outfit,casual street style,"
+                    "minimal outfit,winter streetwear,summer outfit inspo"
+                ),
             ).split(",")
             if kw.strip()
         ]

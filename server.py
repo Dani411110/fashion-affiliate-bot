@@ -10,6 +10,7 @@ Ruleaza continuu, nu se opreste niciodata.
 
 import asyncio
 import logging
+import os
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -31,6 +32,18 @@ async def main():
     settings = get_settings()
     logger.info("Starting Fashion Affiliate Bot server...")
     logger.info("Telegram chat_id: {}", settings.telegram_chat_id)
+    logger.info("SQLite path: {}", settings.sqlite_path)
+    logger.info(
+        "Railway volume: {}",
+        os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "not detected"),
+    )
+    logger.info(
+        "Platforms enabled: reddit={}, instagram={}, tiktok={}, youtube={}",
+        settings.enable_reddit,
+        settings.enable_instagram,
+        settings.enable_tiktok,
+        settings.enable_youtube,
+    )
 
     app = build_application()
     bot = app.bot
@@ -57,12 +70,11 @@ async def main():
         await bot.send_message(
             chat_id=settings.telegram_chat_id,
             text=(
-                "🚀 *Fashion Bot pornit pe server!*\n\n"
+                "*Fashion Bot pornit pe server!*\n\n"
                 f"Posturi programate: {settings.post_time_1}, "
                 f"{settings.post_time_2}, {settings.post_time_3}\n\n"
-                "Scrie /status sau /run pentru a incepe manual."
-            ),
-            parse_mode="Markdown",
+                "Scrie .status, .platforms sau .start pentru a incepe manual."
+            ),            parse_mode="Markdown",
         )
     except Exception as exc:
         logger.warning("Nu am putut trimite mesajul de startup: {}", exc)

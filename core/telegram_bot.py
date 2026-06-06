@@ -18,6 +18,7 @@ import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from textwrap import shorten
 from typing import Any, Dict, Optional
 
 from telegram import (
@@ -112,27 +113,75 @@ async def _send_start_menu(update: Update):
     )
 
 
+def _help_text() -> str:
+    return (
+        "*Fashion Bot commands*\n\n"
+        ".start - alege categoria si numarul de poze\n"
+        ".status - statistici DB\n"
+        ".queue - ultimele postari si coada\n"
+        ".platforms - platforme active/inactive\n"
+        ".scrape 50 - scrape Pinterest\n"
+        ".scrapeproducts 30 - scrape Mulebuy\n"
+        ".syncsheet - sync Google Sheet in SQLite\n"
+        ".run - sesiune de 3 posturi\n\n"
+        "Flow: .start -> categorie -> 5/6/7/8 poze -> preview album -> approve/reject/regenerate."
+    )
+
+
+def _platform_status_lines() -> list[str]:
+    settings = get_settings()
+    return [
+        f"Reddit: {'ON' if settings.enable_reddit else 'OFF'}",
+        f"Instagram: {'ON' if settings.enable_instagram else 'OFF'}",
+        f"TikTok: {'ON' if settings.enable_tiktok else 'OFF'}",
+        f"YouTube: {'ON' if settings.enable_youtube else 'OFF'}",
+    ]
+
+
+def _format_queue_rows() -> str:
+    db = get_db()
+    stats = db.get_stats()
+    rows = db.get_recent_posts(limit=8)
+    lines = ["*Queue / Posts*", ""]
+    for status, count in sorted(stats.get("posts_by_status", {}).items()):
+        lines.append(f"{status}: {count}")
+    if not rows:
+        lines.append("\nNu exista postari in DB.")
+        return "\n".join(lines)
+
+    lines.append("\n*Ultimele postari:*")
+    for row in rows:
+        caption = shorten((row.get("caption") or "").replace("\n", " "), width=70, placeholder="...")
+        lines.append(
+            f"#{row['id']} | {row['status']} | {row['category']} | {row.get('carousel_image_count', 0)} poze"
+        )
+        if caption:
+            lines.append(f"  {caption}")
+    return "\n".join(lines)
+
+
 def _format_preview(pkg) -> str:
     lines = [
-        f"*Post ID:* {pkg.post_id}",
-        f"*Categorie:* {pkg.category}",
-        f"*Imagini carusel:* {len(pkg.all_images)}",
+        f"*Post #{pkg.post_id}*",
+        f"Categoria: {pkg.category}",
+        f"Carusel: {len(pkg.all_images)} imagini",
         "",
         "*Produse:*",
     ]
-    for p in pkg.products:
-        lines.append(f"• {p['name']} — ${p['price']:.2f}")
+    for idx, p in enumerate(pkg.products, start=1):
+        name = shorten(str(p.get("name", "Product")), width=42, placeholder="...")
+        price = float(p.get("price", 0) or 0)
+        link = p.get("mulebuy_link", "")
+        lines.append(f"{idx}. [{name}]({link}) - ${price:.2f}")
 
-    lines += [
-        "",
-        "*Caption Reddit:*",
-        pkg.captions.get("reddit", {}).get("title", ""),
-        "",
-        "*Caption TikTok:*",
-        pkg.captions.get("tiktok", {}).get("caption", "")[:150],
-    ]
+    reddit = pkg.formatted_captions.get("reddit", "")
+    instagram = pkg.formatted_captions.get("instagram", "")
+    tiktok = pkg.formatted_captions.get("tiktok", "")
+
+    lines += ["", "*Reddit:*", shorten(reddit, width=700, placeholder="...")]
+    lines += ["", "*TikTok:*", shorten(tiktok, width=500, placeholder="...")]
+    lines += ["", "*Instagram:*", shorten(instagram, width=500, placeholder="...")]
     return "\n".join(lines)
-
 
 async def _send_post_preview(bot: Bot, chat_id: int, pkg):
     """Trimite preview complet al postului cu butoane de aprobare."""
@@ -230,6 +279,14 @@ async def cmd_dot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await _send_start_menu(update)
 
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await update.message.reply_text(_help_text(), parse_mode=ParseMode.MARKDOWN)
+
+
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
@@ -244,6 +301,23 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for status, count in stats.get("posts_by_status", {}).items():
         text += f"   • {status}: {count}\n"
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_platforms(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await update.message.reply_text(
+        "*Platforme*\n\n" + "\n".join(_platform_status_lines()),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await update.message.reply_text(_format_queue_rows(), parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -270,8 +344,30 @@ async def cmd_postqueue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nu exista posturi aprobate in coada.")
         return
 
-    await update.message.reply_text(f"Publicing {len(approved)} posturi din coada...")
-    # TODO: build minimal PostPackage from DB records and publish
+    await update.message.reply_text(f"Public {len(approved)} posturi aprobate din coada...")
+    from core.post_builder import package_from_db_record
+
+    for record in approved:
+        try:
+            pkg = package_from_db_record(record)
+            results = await _publish_package(pkg)
+            if not results:
+                await update.message.reply_text(
+                    f"Post #{pkg.post_id}: aprobat, dar nicio platforma nu este activa."
+                )
+                continue
+            lines = [f"*Post #{pkg.post_id}*"]
+            for platform, result in results:
+                if result.success:
+                    lines.append(f"{platform.upper()}: {result.url or result.platform_post_id}")
+                else:
+                    lines.append(f"{platform.upper()} failed: {result.error[:100]}")
+            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        except Exception as exc:
+            logger.exception("Queued publish failed for post {}", record.get("id"))
+            await update.message.reply_text(
+                f"Post #{record.get('id')}: eroare postqueue: {exc}"
+            )
 
 
 async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -481,6 +577,8 @@ async def _handle_regen(update: Update, context: ContextTypes.DEFAULT_TYPE, post
             post_id,
             new_fmt.get("reddit", ""),
             " ".join(f"#{h}" for h in new_caps.get("reddit", {}).get("hashtags", [])),
+            captions_json=new_caps,
+            formatted_captions_json=new_fmt,
         )
         await context.bot.send_message(chat_id=chat_id, text="✅ Captioane regenerate!")
         await _send_post_preview(context.bot, chat_id, pkg)
@@ -532,18 +630,51 @@ async def scheduled_post_job(bot: Bot, chat_id: int):
 
 # ── App builder ───────────────────────────────────────────────────────────────
 
+async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    text = (update.message.text or "").strip()
+    parts = text[1:].split() if text.startswith(".") else []
+    if not parts:
+        return
+    command = parts[0].lower()
+    context.args = parts[1:]
+
+    handlers = {
+        "start": cmd_dot_start,
+        "help": cmd_help,
+        "status": cmd_status,
+        "queue": cmd_queue,
+        "platforms": cmd_platforms,
+        "run": cmd_run,
+        "postqueue": cmd_postqueue,
+        "scrape": cmd_scrape,
+        "scrapeproducts": cmd_scrapeproducts,
+        "syncsheet": cmd_syncsheet,
+    }
+    handler = handlers.get(command)
+    if handler:
+        await handler(update, context)
+    else:
+        await update.message.reply_text("Comanda necunoscuta. Scrie .help")
+
+
 def build_application() -> Application:
     settings = get_settings()
     app = Application.builder().token(settings.telegram_bot_token).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("queue", cmd_queue))
+    app.add_handler(CommandHandler("platforms", cmd_platforms))
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("postqueue", cmd_postqueue))
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
     app.add_handler(CommandHandler("syncsheet", cmd_syncsheet))
-    app.add_handler(MessageHandler(filters.Regex(r"^\s*\.start\s*$"), cmd_dot_start))
+    app.add_handler(MessageHandler(filters.Regex(r"^\s*\.\w+"), dot_command_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     return app
