@@ -10,6 +10,7 @@ Each image is shown for VIDEO_SECONDS_PER_IMAGE seconds.
 
 import subprocess
 import tempfile
+import os
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -118,7 +119,8 @@ class YouTubePublisher(BasePublisher):
                 secrets_path = str(tmp)
 
             flow = InstalledAppFlow.from_client_secrets_file(secrets_path, _YT_SCOPES)
-            creds = flow.run_local_server(port=0)
+            oauth_port = int(os.getenv("YOUTUBE_OAUTH_PORT", "8081"))
+            creds = flow.run_local_server(port=oauth_port)
             self._token_path.parent.mkdir(parents=True, exist_ok=True)
             self._token_path.write_text(creds.to_json(), encoding="utf-8")
             logger.info("YouTube OAuth token saved to {}", self._token_path)
