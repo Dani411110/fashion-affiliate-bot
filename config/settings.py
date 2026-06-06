@@ -124,10 +124,25 @@ class Settings:
             "TIKTOK_COOKIES_PATH", "data/tiktok_cookies.json"
         )
     )
+    tiktok_client_key: str = field(
+        default_factory=lambda: _get("TIKTOK_CLIENT_KEY", "")
+    )
+    tiktok_client_secret: str = field(
+        default_factory=lambda: _get("TIKTOK_CLIENT_SECRET", "")
+    )
+    tiktok_redirect_uri: str = field(
+        default_factory=lambda: _get(
+            "TIKTOK_REDIRECT_URI",
+            "https://fashion-affiliate-bot-production.up.railway.app/tiktok/callback",
+        )
+    )
     # Optional: TikTok Content Posting API OAuth token (for Strategy 1)
     # Get from https://developers.tiktok.com/ — needed for photo carousel API
     tiktok_access_token: str = field(
         default_factory=lambda: _get("TIKTOK_ACCESS_TOKEN", "")
+    )
+    tiktok_refresh_token: str = field(
+        default_factory=lambda: _get("TIKTOK_REFRESH_TOKEN", "")
     )
 
     # ── Pixabay ──────────────────────────────────────────────────────────

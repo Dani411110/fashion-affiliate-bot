@@ -1,9 +1,11 @@
 """CLI entry point for the Fashion Affiliate Content Automation Bot."""
 
 import os
+import secrets
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import click
 from rich.console import Console
@@ -253,6 +255,7 @@ def platform_test(live: bool):
 
     cookies_path = Path(s.tiktok_cookies_path)
     cookies_ready = cookies_path.exists()
+    tiktok_oauth_ready = bool(s.tiktok_client_key and s.tiktok_client_secret and s.tiktok_redirect_uri)
     tiktok_ready = bool(s.tiktok_access_token or cookies_ready)
     tiktok_test = "not run"
     if live and s.tiktok_access_token:
@@ -281,9 +284,9 @@ def platform_test(live: bool):
     table.add_row(
         "TikTok",
         onoff(s.enable_tiktok),
-        ok(tiktok_ready),
+        ok(tiktok_ready or tiktok_oauth_ready),
         tiktok_test,
-        "Add Content API token; cookies are fragile on Railway" if not s.tiktok_access_token else "Ready for API publish test",
+        "Run tiktok-auth-url after app review, then exchange callback code" if not s.tiktok_access_token else "Ready for API publish test",
     )
 
     youtube_ready = bool(s.youtube_client_secrets_json)
@@ -309,6 +312,85 @@ def platform_test(live: bool):
 
     console.print(table)
     console.print("\n[dim]This command does not publish or modify posts.[/dim]")
+
+
+@cli.command("tiktok-auth-url")
+@click.option(
+    "--scopes",
+    default="user.info.basic,video.upload,video.publish",
+    show_default=True,
+    help="Comma-separated TikTok OAuth scopes.",
+)
+def tiktok_auth_url(scopes: str):
+    """Print the TikTok OAuth URL for generating a user authorization code."""
+    from config.settings import get_settings
+
+    s = get_settings()
+    if not s.tiktok_client_key:
+        console.print("[red]TIKTOK_CLIENT_KEY is missing.[/red]")
+        return
+    scope_value = ",".join(part.strip() for part in scopes.split(",") if part.strip())
+    params = {
+        "client_key": s.tiktok_client_key,
+        "scope": scope_value,
+        "response_type": "code",
+        "redirect_uri": s.tiktok_redirect_uri,
+        "state": secrets.token_urlsafe(16),
+    }
+    url = "https://www.tiktok.com/v2/auth/authorize/?" + urlencode(params)
+    console.print("[green]Open this URL after TikTok approves the app:[/green]")
+    console.print(url)
+
+
+@cli.command("tiktok-exchange-code")
+@click.argument("code")
+def tiktok_exchange_code(code: str):
+    """Exchange a TikTok callback authorization code for access/refresh tokens."""
+    from config.settings import get_settings
+    import requests
+
+    s = get_settings()
+    missing = [
+        name for name, value in [
+            ("TIKTOK_CLIENT_KEY", s.tiktok_client_key),
+            ("TIKTOK_CLIENT_SECRET", s.tiktok_client_secret),
+            ("TIKTOK_REDIRECT_URI", s.tiktok_redirect_uri),
+        ]
+        if not value
+    ]
+    if missing:
+        console.print(f"[red]Missing env vars:[/red] {', '.join(missing)}")
+        return
+
+    resp = requests.post(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        data={
+            "client_key": s.tiktok_client_key,
+            "client_secret": s.tiktok_client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": s.tiktok_redirect_uri,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    try:
+        payload = resp.json()
+    except ValueError:
+        console.print(f"[red]TikTok returned non-JSON response:[/red] {resp.text[:300]}")
+        return
+
+    out = Path("data/tiktok_token_response.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    import json
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    if resp.ok and payload.get("access_token"):
+        console.print(f"[green]Token response saved to:[/green] {out}")
+        console.print("[yellow]Copy access_token to Railway as TIKTOK_ACCESS_TOKEN.")
+        console.print("Copy refresh_token to Railway as TIKTOK_REFRESH_TOKEN.[/yellow]")
+    else:
+        console.print(f"[red]Token exchange failed:[/red] {payload}")
 
 
 @cli.command("backup-db")
