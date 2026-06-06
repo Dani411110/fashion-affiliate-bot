@@ -164,18 +164,20 @@ async def _scrape_category(
     page: Page,
     category_label: str,
     internal_cat: str,
-    target: int,
+    target: Optional[int],
+    scrolls: int = 5,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
     await _select_category(page, category_label)
-    await _scroll_load(page, scrolls=5)
+    await _scroll_load(page, scrolls=scrolls)
 
     cards = await page.query_selector_all(CARD_SEL)
-    logger.info("Category '{}': {} cards visible, target={}", category_label, len(cards), target)
+    target_label = target if target and target > 0 else "all visible"
+    logger.info("Category '{}': {} cards visible, target={}", category_label, len(cards), target_label)
 
     for card in cards:
-        if len(results) >= target:
+        if target and target > 0 and len(results) >= target:
             break
 
         info = await _extract_card_info(card)
@@ -214,7 +216,9 @@ async def _scrape_category(
 
 async def _scrape_async(
     categories: List[str],
-    per_category: int,
+    per_category: Optional[int],
+    category_timeout: int = 120,
+    scrolls: int = 5,
 ) -> List[Dict[str, Any]]:
     all_products: List[Dict[str, Any]] = []
 
@@ -236,11 +240,18 @@ async def _scrape_async(
                 internal = CATEGORIES.get(label, "tops")
                 try:
                     products = await asyncio.wait_for(
-                        _scrape_category(context, page, label, internal, per_category),
-                        timeout=120,
+                        _scrape_category(
+                            context,
+                            page,
+                            label,
+                            internal,
+                            per_category,
+                            scrolls=scrolls,
+                        ),
+                        timeout=category_timeout,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("Category '{}' timed out after 120s - skipping", label)
+                    logger.warning("Category '{}' timed out after {}s - skipping", label, category_timeout)
                     products = []
                 all_products.extend(products)
                 logger.info("  → {} products collected for '{}'", len(products), label)
@@ -254,27 +265,37 @@ async def _scrape_async(
 
 def scrape_mulebuy(
     categories: Optional[List[str]] = None,
-    per_category: int = 30,
+    per_category: Optional[int] = 30,
     save_to_db: bool = True,
+    category_timeout: int = 120,
+    scrolls: int = 5,
 ) -> List[Dict[str, Any]]:
     """
     Scrape mulebuy.gg and optionally save to SQLite products_cache.
 
     Args:
         categories:   list of category labels (keys of CATEGORIES). None = all.
-        per_category: max products per category.
+        per_category: max products per category. Use 0 or None for all visible products.
         save_to_db:   whether to upsert into SQLite.
 
     Returns:
         List of product dicts.
     """
     cats = categories or list(CATEGORIES.keys())
+    per_category_label = per_category if per_category and per_category > 0 else "all visible"
     logger.info(
         "Starting Mulebuy scrape — {} categories × {} each",
-        len(cats), per_category
+        len(cats), per_category_label
     )
 
-    products = asyncio.run(_scrape_async(cats, per_category))
+    products = asyncio.run(
+        _scrape_async(
+            cats,
+            per_category,
+            category_timeout=category_timeout,
+            scrolls=scrolls,
+        )
+    )
     logger.info("Mulebuy scrape done — {} total products", len(products))
 
     if save_to_db and products:
@@ -282,6 +303,22 @@ def scrape_mulebuy(
         logger.info("Saved {} products to SQLite", len(products))
 
     return products
+
+
+def scrape_mulebuy_all(
+    categories: Optional[List[str]] = None,
+    save_to_db: bool = True,
+    category_timeout: int = 300,
+    scrolls: int = 30,
+) -> List[Dict[str, Any]]:
+    """Scrape every visible product from every Mulebuy category."""
+    return scrape_mulebuy(
+        categories=categories,
+        per_category=0,
+        save_to_db=save_to_db,
+        category_timeout=category_timeout,
+        scrolls=scrolls,
+    )
 
 
 def get_cached_products(min_count: int = 50, auto_scrape: bool = True) -> List[Dict[str, Any]]:

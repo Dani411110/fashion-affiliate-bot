@@ -92,6 +92,34 @@ def scrape_products(categories, per_category):
     console.print(f"[green]Done. Scraped {len(products)} products.[/green]")
 
 
+@cli.command("scrape-products-all")
+@click.option(
+    "--categories",
+    default=None,
+    help="Comma-separated categories. Default: all Mulebuy categories.",
+)
+@click.option("--category-timeout", default=300, show_default=True, help="Seconds before skipping a stuck category.")
+@click.option("--scrolls", default=30, show_default=True, help="Scroll passes per category before collecting cards.")
+def scrape_products_all(categories, category_timeout, scrolls):
+    """Scrape every visible Mulebuy product from every category into SQLite."""
+    from scrapers.mulebuy_scraper import scrape_mulebuy_all, CATEGORIES
+    cats = [c.strip() for c in categories.split(",")] if categories else None
+    if cats:
+        invalid = [c for c in cats if c not in CATEGORIES]
+        if invalid:
+            console.print(f"[red]Unknown categories: {invalid}[/red]")
+            console.print(f"Valid: {list(CATEGORIES.keys())}")
+            return
+    console.print("[cyan]Scraping all visible Mulebuy products into SQLite...[/cyan]")
+    console.print("[dim]This is a long-running Railway/ops command, not a Telegram command.[/dim]")
+    products = scrape_mulebuy_all(
+        categories=cats,
+        category_timeout=category_timeout,
+        scrolls=scrolls,
+    )
+    console.print(f"[green]Done. Scraped {len(products)} products.[/green]")
+
+
 @cli.command()
 @click.option("--live", is_flag=True, help="Also perform live API checks where safe.")
 def doctor(live: bool):

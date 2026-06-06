@@ -10,7 +10,8 @@ param(
         "server",
         "env-template",
         "report",
-        "cleanup"
+        "cleanup",
+        "scrape-products-all"
     )]
     [string]$Task = "doctor"
 )
@@ -89,5 +90,8 @@ switch ($Task) {
     }
     "cleanup" {
         Invoke-Step "Cleanup temp" { python main.py cleanup-temp --days 14 }
+    }
+    "scrape-products-all" {
+        Invoke-Step "Scrape all Mulebuy products" { python main.py scrape-products-all }
     }
 }

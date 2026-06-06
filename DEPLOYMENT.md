@@ -144,6 +144,14 @@ Cloud:
 .start
 ```
 
+Long-running Railway product stock command:
+
+```bash
+python main.py scrape-products-all
+```
+
+Run this from Railway Console/Shell after the persistent volume is attached.
+
 ## 5. Known Production Notes
 
 - SQLite is safe on Railway only when a persistent volume is attached.

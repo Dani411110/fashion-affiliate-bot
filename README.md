@@ -153,6 +153,9 @@ python main.py scrape
 python main.py scrape --count 30
 python main.py scrape --keywords "y2k fashion,aesthetic outfit"
 
+# Scrape all visible Mulebuy products into SQLite/volume
+python main.py scrape-products-all
+
 # Publish all queued approved posts immediately
 python main.py post-queue
 
