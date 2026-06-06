@@ -146,7 +146,7 @@ async def _get_buy_link(context: BrowserContext, page: Page, card) -> str:
         return ""
 
 
-async def _select_category(page: Page, label: str):
+async def _select_category(page: Page, label: str) -> bool:
     """Click the category filter tab."""
     try:
         # Category tabs are buttons with text matching label
@@ -155,8 +155,13 @@ async def _select_category(page: Page, label: str):
         )
         await tab.click()
         await asyncio.sleep(1.5)
+        return True
     except PWTimeout:
-        logger.warning("Category tab '{}' not found — using current view", label)
+        logger.warning("Category tab '{}' not found - skipping", label)
+        return False
+    except Exception as exc:
+        logger.warning("Category tab '{}' failed: {} - skipping", label, exc)
+        return False
 
 
 async def _scrape_category(
@@ -169,7 +174,9 @@ async def _scrape_category(
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
-    await _select_category(page, category_label)
+    if not await _select_category(page, category_label):
+        return []
+
     await _scroll_load(page, scrolls=scrolls)
 
     cards = await page.query_selector_all(CARD_SEL)
@@ -219,6 +226,7 @@ async def _scrape_async(
     per_category: Optional[int],
     category_timeout: int = 120,
     scrolls: int = 5,
+    save_each_category: bool = False,
 ) -> List[Dict[str, Any]]:
     all_products: List[Dict[str, Any]] = []
 
@@ -253,7 +261,16 @@ async def _scrape_async(
                 except asyncio.TimeoutError:
                     logger.warning("Category '{}' timed out after {}s - skipping", label, category_timeout)
                     products = []
+                except PWTimeout as exc:
+                    logger.warning("Category '{}' hit Playwright timeout: {} - skipping", label, exc)
+                    products = []
+                except Exception as exc:
+                    logger.warning("Category '{}' failed: {} - skipping", label, exc)
+                    products = []
                 all_products.extend(products)
+                if save_each_category and products:
+                    get_db().sync_products(products)
+                    logger.info("  -> saved {} products for '{}' to SQLite", len(products), label)
                 logger.info("  → {} products collected for '{}'", len(products), label)
                 await asyncio.sleep(random.uniform(1.0, 2.0))
 
@@ -294,6 +311,7 @@ def scrape_mulebuy(
             per_category,
             category_timeout=category_timeout,
             scrolls=scrolls,
+            save_each_category=save_to_db,
         )
     )
     logger.info("Mulebuy scrape done — {} total products", len(products))
