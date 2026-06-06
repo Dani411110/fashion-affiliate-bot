@@ -195,6 +195,65 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
 </html>"""
 
 
+def _legal_page_html(title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)} - Fashion Bot</title>
+  <style>
+    body {{ margin:0; font-family: Arial, sans-serif; background:#fafafa; color:#171717; }}
+    main {{ max-width:760px; margin:0 auto; padding:48px 24px; line-height:1.65; }}
+    h1 {{ font-size:30px; margin:0 0 20px; }}
+    p {{ margin:0 0 14px; }}
+    a {{ color:#4f46e5; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{html.escape(title)}</h1>
+    {body}
+  </main>
+</body>
+</html>"""
+
+
+def _privacy_html() -> str:
+    body = """
+    <p>Fashion Bot is an internal operator tool for preparing, reviewing, and publishing fashion affiliate content to connected social accounts.</p>
+    <p>The service may process account identifiers, approved post captions, image URLs, and publishing status for the sole purpose of operating the content workflow.</p>
+    <p>We do not sell personal data. Access tokens are stored as environment secrets and are used only to publish content that the operator manually approves.</p>
+    <p>To request deletion of app-related data, contact the app owner through the connected developer account.</p>
+    """
+    return _legal_page_html("Privacy Policy", body)
+
+
+def _terms_html() -> str:
+    body = """
+    <p>Fashion Bot is provided as an internal automation tool for managing fashion affiliate content workflows.</p>
+    <p>The operator is responsible for reviewing all generated content, complying with platform rules, and ensuring that affiliate links and disclosures are accurate.</p>
+    <p>The tool does not guarantee successful publication to third-party platforms and may be limited by API availability, account permissions, or platform review decisions.</p>
+    <p>By using this service, the operator agrees to publish only approved content and to maintain valid credentials for connected accounts.</p>
+    """
+    return _legal_page_html("Terms of Service", body)
+
+
+def _tiktok_callback_html(query: dict[str, list[str]]) -> str:
+    code = html.escape((query.get("code") or [""])[0])
+    error = html.escape((query.get("error") or [""])[0])
+    if error:
+        body = f"<p>TikTok authorization returned an error: <strong>{error}</strong></p>"
+    elif code:
+        body = (
+            "<p>TikTok authorization succeeded. Copy this authorization code for the local token helper:</p>"
+            f"<p><code>{code}</code></p>"
+        )
+    else:
+        body = "<p>TikTok callback endpoint is active.</p>"
+    return _legal_page_html("TikTok Callback", body)
+
+
 def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
     if os.getenv("ENABLE_DEBUG_UI", "true").strip().lower() in {"0", "false", "no"}:
         logger.info("Debug UI disabled")
@@ -227,6 +286,12 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _json_response(self, {"log_file": str(log_file) if log_file else "", "lines": _tail_file(log_file, 120) if log_file else []})
             elif parsed.path == "/":
                 _html_response(self, _dashboard_html(settings, token_query))
+            elif parsed.path == "/privacy":
+                _html_response(self, _privacy_html())
+            elif parsed.path == "/terms":
+                _html_response(self, _terms_html())
+            elif parsed.path == "/tiktok/callback":
+                _html_response(self, _tiktok_callback_html(query))
             else:
                 _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
 
