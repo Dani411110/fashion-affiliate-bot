@@ -234,9 +234,14 @@ async def _scrape_async(
 
             for label in categories:
                 internal = CATEGORIES.get(label, "tops")
-                products = await _scrape_category(
-                    context, page, label, internal, per_category
-                )
+                try:
+                    products = await asyncio.wait_for(
+                        _scrape_category(context, page, label, internal, per_category),
+                        timeout=120,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Category '{}' timed out after 120s - skipping", label)
+                    products = []
                 all_products.extend(products)
                 logger.info("  → {} products collected for '{}'", len(products), label)
                 await asyncio.sleep(random.uniform(1.0, 2.0))
@@ -279,11 +284,11 @@ def scrape_mulebuy(
     return products
 
 
-def get_cached_products(min_count: int = 50) -> List[Dict[str, Any]]:
-    """Return products from SQLite. Triggers fresh scrape if cache is too small."""
+def get_cached_products(min_count: int = 50, auto_scrape: bool = True) -> List[Dict[str, Any]]:
+    """Return products from SQLite. Optionally triggers fresh scrape if cache is too small."""
     db = get_db()
     cached = db.get_all_cached_products()
-    if len(cached) < min_count:
+    if auto_scrape and len(cached) < min_count:
         logger.info(
             "Cache too small ({} < {}) — scraping Mulebuy now",
             len(cached), min_count

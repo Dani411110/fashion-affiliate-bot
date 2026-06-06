@@ -77,6 +77,7 @@ class PostBuilder:
         self,
         category_name: str,
         image_count: Optional[int] = None,
+        allow_auto_scrape: bool = True,
     ) -> PostPackage:
         """Build a complete PostPackage (carousel, no video) for the given category."""
         logger.info("=== Building post: category='{}' ===", category_name)
@@ -88,9 +89,9 @@ class PostBuilder:
 
         # Step 1 — Load products from Mulebuy cache (scrape if needed)
         logger.info("[1/7] Loading products from Mulebuy cache")
-        cached_products = get_cached_products(min_count=50)
+        cached_products = get_cached_products(min_count=50, auto_scrape=allow_auto_scrape)
         if not cached_products:
-            raise RuntimeError("No products available. Run: python main.py scrape-products")
+            raise RuntimeError("No products available. Run .scrapeproducts 30 first.")
 
         # Step 2 — Select products via CategorySelector
         logger.info("[2/7] Selecting products via CategorySelector")
@@ -108,7 +109,7 @@ class PostBuilder:
         # Step 3 — Get unused Pinterest image (trigger scraper if stock low)
         logger.info("[3/7] Fetching Pinterest inspiration image")
         unused_count = self._db.count_unused_pinterest_images()
-        if unused_count < self._settings.min_pinterest_stock:
+        if allow_auto_scrape and unused_count < self._settings.min_pinterest_stock:
             logger.info(
                 "Pinterest stock low ({} < {}), triggering scrape",
                 unused_count,

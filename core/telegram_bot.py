@@ -160,6 +160,29 @@ def _format_queue_rows() -> str:
     return "\n".join(lines)
 
 
+def _stock_blocking_message(image_count: int) -> Optional[str]:
+    stats = get_db().get_stats()
+    needed_products = max(1, image_count - 1)
+    products = int(stats.get("products_cached", 0) or 0)
+    pinterest_unused = int(stats.get("pinterest_unused", 0) or 0)
+    problems = []
+    if products < needed_products:
+        problems.append(f"produse Mulebuy: {products}/{needed_products}")
+    if pinterest_unused < 1:
+        problems.append("poze Pinterest nefolosite: 0/1")
+    if not problems:
+        return None
+    return (
+        "*Nu pot construi inca postarea.*\n\n"
+        "Stock insuficient in DB-ul din cloud:\n"
+        + "\n".join(f"- {item}" for item in problems)
+        + "\n\nRuleaza intai:\n"
+        "`.scrapeproducts 30`\n"
+        "`.scrape 20`\n\n"
+        "Dupa ce dashboardul arata produse si poze, ruleaza din nou `.start`."
+    )
+
+
 def _format_preview(pkg) -> str:
     lines = [
         f"*Post #{pkg.post_id}*",
@@ -469,6 +492,14 @@ async def _handle_image_count(
     chat_id = query.message.chat_id
     category_name = CATEGORY_NAMES[category_num]
 
+    blocking_message = _stock_blocking_message(image_count)
+    if blocking_message:
+        await query.edit_message_text(
+            blocking_message,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
     await query.edit_message_text(
         f"Construiesc post *{category_name}* cu *{image_count} poze*...",
         parse_mode=ParseMode.MARKDOWN,
@@ -476,7 +507,11 @@ async def _handle_image_count(
 
     def _build():
         from core.post_builder import PostBuilder
-        return PostBuilder().build_post(category_name, image_count=image_count)
+        return PostBuilder().build_post(
+            category_name,
+            image_count=image_count,
+            allow_auto_scrape=False,
+        )
 
     try:
         pkg = await _run_in_thread(_build)
@@ -662,7 +697,12 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 def build_application() -> Application:
     settings = get_settings()
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .concurrent_updates(True)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
