@@ -228,7 +228,9 @@ service before production use.
 
 1. Push this repository to a private GitHub repo.
 2. In Railway, create a new project from the GitHub repo.
-3. Add the environment variables from `.env` in the Railway dashboard.
+3. Add the environment variables from `railway.env.template` in the Railway
+   dashboard. Refresh it with:
+   `powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 env-template`.
 4. Add a persistent volume to the service. Railway injects
    `RAILWAY_VOLUME_MOUNT_PATH` automatically.
 5. Leave `SQLITE_PATH` unset, or set it explicitly to
@@ -237,6 +239,12 @@ service before production use.
    `ENABLE_YOUTUBE` disabled until each platform credential is ready.
 
 Local development still defaults to `data/fashion_bot.db`.
+
+Before pushing or deploying, run the full local readiness check:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 verify
+```
 
 ---
 

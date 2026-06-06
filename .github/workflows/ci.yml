@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python
+        run: |
+          python -m compileall config database core scrapers publishers captions categories drive filters music sheets utils video main.py server.py
+
+      - name: Secret scan
+        shell: bash
+        run: |
+          ! grep -RIE --exclude-dir=.git --exclude-dir=.github --exclude=.env --exclude='*.db' \
+            --exclude=post_preview.html --exclude=generate_preview.py --exclude=preview_post.py \
+            '(sk-[A-Za-z0-9_-]{20,}|ntn_[A-Za-z0-9_-]{20,}|BEGIN PRIVATE KEY|private_key|TELEGRAM_BOT_TOKEN=[0-9]+:)' .
+
+      - name: Docker build
+        run: docker build -t fashion-affiliate-bot:ci .

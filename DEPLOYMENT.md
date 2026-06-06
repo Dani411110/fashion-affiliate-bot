@@ -23,7 +23,7 @@ Do not commit `.env`, service account JSON files, SQLite DBs, cookies, or OAuth 
 $RAILWAY_VOLUME_MOUNT_PATH/fashion_bot.db
 ```
 
-5. Add all environment variables from `.env`.
+5. Add all environment variables from `railway.env.template`.
 6. Start with all platform toggles disabled:
 
 ```env
@@ -42,6 +42,16 @@ ENABLE_YOUTUBE=false
 ```
 
 ## 3. Railway Environment Checklist
+
+Generate or refresh the safe Railway template any time:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 env-template
+```
+
+Then copy values from `railway.env.template` into Railway Settings -> Variables.
+The template is safe to commit because it contains placeholders instead of local
+secret values.
 
 Required:
 
@@ -103,6 +113,12 @@ $env:PYTHONIOENCODING="utf-8"
 python main.py doctor
 python main.py status
 docker build -t fashion-affiliate-bot:local .
+```
+
+Full local readiness check:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tasks.ps1 verify
 ```
 
 Cloud:
