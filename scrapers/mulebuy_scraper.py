@@ -9,6 +9,7 @@ Or called automatically by PostBuilder when product cache is stale.
 """
 
 import asyncio
+import hashlib
 import random
 import time
 from typing import Any, Dict, List, Optional
@@ -199,8 +200,9 @@ async def _scrape_category(
             safe = info["name"].replace(" ", "+")
             buy_link = f"https://mulebuy.com/search/?keyword={safe}"
 
-        # Unique key based on link + name
-        row_index = abs(hash(buy_link + info["name"])) % (10 ** 9)
+        # Stable unique key based on link + name. Python's hash() changes per process.
+        unique_key = f"{buy_link}|{info['name']}".encode("utf-8")
+        row_index = int(hashlib.sha256(unique_key).hexdigest()[:12], 16) % (10 ** 9)
 
         results.append({
             "sheet_row_index":  row_index,
@@ -236,17 +238,16 @@ async def _scrape_async(
             user_agent=_USER_AGENT,
             viewport={"width": 1440, "height": 900},
         )
-        page = await context.new_page()
-
         try:
-            logger.info("Opening mulebuy.gg/products …")
-            await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
-            await asyncio.sleep(3)
-            await _dismiss_popups(page)
-
             for label in categories:
                 internal = CATEGORIES.get(label, "tops")
+                page: Optional[Page] = None
                 try:
+                    page = await context.new_page()
+                    logger.info("Opening mulebuy.gg/products for '{}' ...", label)
+                    await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
+                    await asyncio.sleep(3)
+                    await _dismiss_popups(page)
                     products = await asyncio.wait_for(
                         _scrape_category(
                             context,
@@ -267,6 +268,12 @@ async def _scrape_async(
                 except Exception as exc:
                     logger.warning("Category '{}' failed: {} - skipping", label, exc)
                     products = []
+                finally:
+                    if page:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
                 all_products.extend(products)
                 if save_each_category and products:
                     get_db().sync_products(products)
