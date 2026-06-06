@@ -138,6 +138,34 @@ def _platform_status_lines() -> list[str]:
     ]
 
 
+def _readiness_text() -> str:
+    settings = get_settings()
+    stats = get_db().get_stats()
+    drive_ready = all(
+        [
+            settings.drive_folder_queue_id,
+            settings.drive_folder_posted_id,
+            settings.drive_folder_rejected_id,
+        ]
+    )
+    checks = [
+        ("OpenAI", bool(settings.openai_api_key), "set"),
+        ("Telegram", bool(settings.telegram_bot_token and settings.telegram_chat_id), "connected"),
+        ("SQLite", True, f"{stats.get('products_cached', 0)} products"),
+        ("Pinterest stock", int(stats.get("pinterest_unused", 0) or 0) > 0, f"{stats.get('pinterest_unused', 0)} unused"),
+        ("Drive folders", drive_ready, "Queue/Posted/Rejected IDs"),
+        ("TikTok OAuth app", bool(settings.tiktok_client_key and settings.tiktok_client_secret), "waiting review/token"),
+        ("YouTube OAuth", bool(settings.youtube_client_secrets_json and Path("data/youtube_token.json").exists()), "token needed"),
+        ("Instagram", bool(settings.instagram_access_token and settings.instagram_user_id), "pending Meta"),
+        ("Reddit", bool(settings.reddit_client_id and settings.reddit_client_secret), "pending API"),
+    ]
+    lines = ["*Readiness*", ""]
+    for name, ok, detail in checks:
+        mark = "OK" if ok else "MISSING"
+        lines.append(f"{name}: {mark} - {detail}")
+    return "\n".join(lines)
+
+
 def _format_queue_rows() -> str:
     db = get_db()
     stats = db.get_stats()
@@ -341,6 +369,13 @@ async def cmd_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != settings.telegram_chat_id:
         return
     await update.message.reply_text(_format_queue_rows(), parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_readiness(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    await update.message.reply_text(_readiness_text(), parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -682,6 +717,8 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "status": cmd_status,
         "queue": cmd_queue,
         "platforms": cmd_platforms,
+        "readiness": cmd_readiness,
+        "doctor": cmd_readiness,
         "run": cmd_run,
         "postqueue": cmd_postqueue,
         "scrape": cmd_scrape,
@@ -709,6 +746,8 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("platforms", cmd_platforms))
+    app.add_handler(CommandHandler("readiness", cmd_readiness))
+    app.add_handler(CommandHandler("doctor", cmd_readiness))
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("postqueue", cmd_postqueue))
     app.add_handler(CommandHandler("scrape", cmd_scrape))

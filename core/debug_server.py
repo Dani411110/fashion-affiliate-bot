@@ -112,6 +112,64 @@ def _safe_db_stats() -> dict[str, Any]:
         return {"error": str(exc)}
 
 
+def _platform_readiness(settings: Settings) -> dict[str, Any]:
+    cookies_path = Path(settings.tiktok_cookies_path)
+    youtube_token = Path("data/youtube_token.json")
+    drive_ready = all(
+        [
+            settings.drive_folder_queue_id,
+            settings.drive_folder_posted_id,
+            settings.drive_folder_rejected_id,
+        ]
+    )
+    platforms = {
+        "reddit": {
+            "enabled": settings.enable_reddit,
+            "configured": all(
+                [
+                    settings.reddit_client_id,
+                    settings.reddit_client_secret,
+                    settings.reddit_username,
+                    settings.reddit_password,
+                    settings.reddit_subreddit,
+                ]
+            ),
+            "next_action": "Waiting for Reddit API credentials/approval",
+        },
+        "instagram": {
+            "enabled": settings.enable_instagram,
+            "configured": bool(settings.instagram_access_token and settings.instagram_user_id and drive_ready),
+            "next_action": "Waiting for Meta/Instagram access token, user id, and Drive folder IDs",
+        },
+        "tiktok": {
+            "enabled": settings.enable_tiktok,
+            "configured": bool(settings.tiktok_access_token or cookies_path.exists()),
+            "oauth_ready": bool(settings.tiktok_client_key and settings.tiktok_client_secret and settings.tiktok_redirect_uri),
+            "next_action": "Waiting for TikTok review, then OAuth code exchange for TIKTOK_ACCESS_TOKEN",
+        },
+        "youtube": {
+            "enabled": settings.enable_youtube,
+            "configured": bool(settings.youtube_client_secrets_json and youtube_token.exists()),
+            "client_secrets": bool(settings.youtube_client_secrets_json),
+            "oauth_token": youtube_token.exists(),
+            "next_action": "Run local OAuth and store data/youtube_token.json, then enable YouTube",
+        },
+    }
+    blockers = [
+        f"{name}: {data['next_action']}"
+        for name, data in platforms.items()
+        if not data.get("configured")
+    ]
+    return {
+        "ready_to_publish_anywhere": any(
+            data["enabled"] and data["configured"] for data in platforms.values()
+        ),
+        "drive_ready": drive_ready,
+        "platforms": platforms,
+        "blockers": blockers,
+    }
+
+
 def _status_payload(settings: Settings) -> dict[str, Any]:
     log_file = _latest_log_file()
     log_lines = _tail_file(log_file, 40) if log_file else []
@@ -133,6 +191,7 @@ def _status_payload(settings: Settings) -> dict[str, Any]:
         },
         "schedule": [settings.post_time_1, settings.post_time_2, settings.post_time_3],
         "db": _safe_db_stats(),
+        "readiness": _platform_readiness(settings),
         "log_file": str(log_file) if log_file else "",
         "last_log_event": _last_log_event(log_lines),
     }
@@ -164,10 +223,15 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
         f"<div class='value'>{html.escape(str(value))}</div></div>"
         for label, value in cards
     )
+    readiness = payload["readiness"]
     platform_html = "\n".join(
-        f"<span class='pill {'on' if enabled else 'off'}'>{name}: {'ON' if enabled else 'OFF'}</span>"
-        for name, enabled in payload["platforms"].items()
+        f"<div class='row'><span class='pill {'on' if data['enabled'] else 'off'}'>"
+        f"{name}: {'ON' if data['enabled'] else 'OFF'}</span>"
+        f"<span class='muted'>configured={'yes' if data['configured'] else 'no'}; "
+        f"{html.escape(str(data['next_action']))}</span></div>"
+        for name, data in readiness["platforms"].items()
     )
+    blocker_html = "\n".join(f"<li>{html.escape(item)}</li>" for item in readiness["blockers"])
     logs_html = html.escape("\n".join(logs))
     status_json = html.escape(json.dumps(payload, ensure_ascii=False, indent=2))
     refresh_url = f"/{token_query}"
@@ -192,6 +256,7 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
     .value {{ font-size:20px; margin-top:8px; overflow-wrap:anywhere; }}
     .panel {{ background:#191b22; border:1px solid #2b2d35; border-radius:8px; padding:16px; margin-top:14px; }}
     .pill {{ display:inline-block; margin:0 8px 8px 0; padding:6px 10px; border-radius:999px; font-size:13px; }}
+    .row {{ margin:8px 0; }}
     .on {{ background:#12351f; color:#8df0a5; }}
     .off {{ background:#3a1720; color:#ff9daf; }}
     pre {{ white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }}
@@ -210,6 +275,7 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
   <main>
     <section class="grid">{card_html}</section>
     <section class="panel"><h2>Platforms</h2>{platform_html}</section>
+    <section class="panel"><h2>Blockers</h2><ul>{blocker_html}</ul></section>
     <section class="panel"><h2>Last Event</h2><pre>{html.escape(payload["last_log_event"])}</pre></section>
     <section class="panel"><h2>Status JSON</h2><pre>{status_json}</pre></section>
     <section class="panel"><h2>Recent Logs</h2><pre>{logs_html}</pre></section>
@@ -344,6 +410,8 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _json_response(self, {"ok": True, "status": "online"})
             elif parsed.path == "/api/status":
                 _json_response(self, _status_payload(settings))
+            elif parsed.path == "/api/readiness":
+                _json_response(self, _platform_readiness(settings))
             elif parsed.path == "/api/logs":
                 log_file = _latest_log_file()
                 _json_response(self, {"log_file": str(log_file) if log_file else "", "lines": _tail_file(log_file, 120) if log_file else []})

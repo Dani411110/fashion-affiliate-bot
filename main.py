@@ -393,6 +393,94 @@ def tiktok_exchange_code(code: str):
         console.print(f"[red]Token exchange failed:[/red] {payload}")
 
 
+@cli.command("youtube-auth-url")
+def youtube_auth_url():
+    """Print a YouTube OAuth URL without starting a local callback server."""
+    from config.settings import get_settings
+    from google_auth_oauthlib.flow import Flow
+
+    s = get_settings()
+    if not s.youtube_client_secrets_json:
+        console.print("[red]YOUTUBE_CLIENT_SECRETS_JSON is missing.[/red]")
+        return
+
+    secrets_path = s.youtube_client_secrets_json
+    if not Path(secrets_path).exists():
+        tmp = Path("data/youtube_client_secrets.json")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(s.youtube_client_secrets_json, encoding="utf-8")
+        secrets_path = str(tmp)
+
+    redirect_uri = f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+    flow = Flow.from_client_secrets_file(
+        secrets_path,
+        scopes=["https://www.googleapis.com/auth/youtube.upload"],
+        redirect_uri=redirect_uri,
+    )
+    url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    console.print("[green]Open this URL, approve YouTube upload, then copy the 'code' from the localhost URL:[/green]")
+    console.print(url)
+
+
+@cli.command("youtube-exchange-code")
+@click.argument("code")
+def youtube_exchange_code(code: str):
+    """Exchange a copied Google OAuth code for data/youtube_token.json."""
+    from config.settings import get_settings
+    from google_auth_oauthlib.flow import Flow
+
+    s = get_settings()
+    if not s.youtube_client_secrets_json:
+        console.print("[red]YOUTUBE_CLIENT_SECRETS_JSON is missing.[/red]")
+        return
+
+    secrets_path = s.youtube_client_secrets_json
+    if not Path(secrets_path).exists():
+        tmp = Path("data/youtube_client_secrets.json")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(s.youtube_client_secrets_json, encoding="utf-8")
+        secrets_path = str(tmp)
+
+    redirect_uri = f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+    flow = Flow.from_client_secrets_file(
+        secrets_path,
+        scopes=["https://www.googleapis.com/auth/youtube.upload"],
+        redirect_uri=redirect_uri,
+    )
+    flow.fetch_token(code=code)
+    token_path = Path("data/youtube_token.json")
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(flow.credentials.to_json(), encoding="utf-8")
+    console.print(f"[green]YouTube OAuth token saved:[/green] {token_path}")
+
+
+@cli.command("drive-folders")
+def drive_folders():
+    """Create/check Google Drive folders and print Railway env values."""
+    from drive.google_drive import get_drive_client
+
+    try:
+        folder_ids = get_drive_client().ensure_folder_structure()
+    except Exception as exc:
+        console.print(f"[red]Drive folder setup failed:[/red] {exc}")
+        console.print("[yellow]Make sure the service account has access to Google Drive.[/yellow]")
+        return
+
+    console.print("[green]Drive folders ready. Add these to Railway Variables:[/green]")
+    mapping = {
+        "DRIVE_FOLDER_QUEUE_ID": folder_ids.get("queue", ""),
+        "DRIVE_FOLDER_POSTED_ID": folder_ids.get("posted", ""),
+        "DRIVE_FOLDER_REJECTED_ID": folder_ids.get("rejected", ""),
+        "DRIVE_FOLDER_RAW_PINTEREST_ID": folder_ids.get("raw_pinterest", ""),
+    }
+    for key, value in mapping.items():
+        console.print(f"{key}={value}")
+
+
 @cli.command("backup-db")
 @click.option("--dest", default=None, help="Destination .db path. Defaults to data/backups timestamp.")
 def backup_db(dest):
@@ -457,11 +545,12 @@ def write_status_report():
     lines += [
         "",
         "## Next Manual Steps",
-        "- Create private GitHub repo and add remote.",
-        "- Push branch `main`.",
-        "- Deploy Railway from GitHub.",
-        "- Add Railway env vars and persistent volume.",
-        "- Test Telegram `.status` from cloud.",
+        "- Add Drive folder IDs to Railway Variables if they are not already set.",
+        "- YouTube: finish OAuth and copy `data/youtube_token.json`/client secrets into Railway strategy before enabling.",
+        "- TikTok: wait for review, then run `python main.py tiktok-auth-url` and `python main.py tiktok-exchange-code <code>`.",
+        "- Instagram: wait for Meta pending role/review, then add token/user id.",
+        "- Reddit: wait for API approval, then add credentials.",
+        "- Keep platform toggles OFF until each platform passes `python main.py platform-test --live`.",
     ]
     Path("PROJECT_STATUS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     console.print("[green]Wrote PROJECT_STATUS.md[/green]")
