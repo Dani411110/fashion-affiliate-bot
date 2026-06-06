@@ -64,6 +64,7 @@ _PUBLIC_PATHS = {
     "/health",
     "/privacy",
     "/terms",
+    "/tiktok/demo",
     "/tiktok/callback",
     "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
 }
@@ -274,6 +275,46 @@ def _tiktok_callback_html(query: dict[str, list[str]]) -> str:
     return _legal_page_html("TikTok Callback", body)
 
 
+def _tiktok_demo_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fashion Bot TikTok Demo</title>
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#0f1014; color:#f7f7f8; }
+    main { max-width:920px; margin:0 auto; padding:42px 22px; }
+    h1 { margin:0 0 10px; font-size:32px; }
+    p { color:#c8cad3; line-height:1.55; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin-top:22px; }
+    .card { border:1px solid #2b2d35; border-radius:8px; background:#191b22; padding:16px; }
+    .step { color:#9f8cff; font-size:13px; text-transform:uppercase; letter-spacing:.04em; }
+    .title { margin-top:8px; font-size:19px; font-weight:700; }
+    .button { display:inline-block; margin-top:18px; padding:12px 16px; border-radius:8px; background:#fe2c55; color:white; text-decoration:none; font-weight:700; }
+    code { color:#8df0a5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Fashion Bot TikTok Integration Demo</h1>
+    <p>
+      Fashion Bot prepares fashion affiliate drafts, sends them to the operator for Telegram approval,
+      and publishes only approved posts to connected social accounts.
+    </p>
+    <a class="button" href="/tiktok/callback">TikTok callback endpoint active</a>
+    <section class="grid">
+      <div class="card"><div class="step">Step 1</div><div class="title">Connect TikTok</div><p>Login Kit identifies the authorized TikTok account before publishing.</p></div>
+      <div class="card"><div class="step">Step 2</div><div class="title">Build Draft</div><p>The bot prepares images, products, captions, and affiliate links for review.</p></div>
+      <div class="card"><div class="step">Step 3</div><div class="title">Manual Approval</div><p>The operator receives a Telegram preview and chooses approve, reject, or regenerate.</p></div>
+      <div class="card"><div class="step">Step 4</div><div class="title">Publish</div><p>Content Posting API uploads only approved content to the connected TikTok profile.</p></div>
+    </section>
+    <p>Public endpoints used for review: <code>/privacy</code>, <code>/terms</code>, and <code>/tiktok/callback</code>.</p>
+  </main>
+</body>
+</html>"""
+
+
 def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
     if os.getenv("ENABLE_DEBUG_UI", "true").strip().lower() in {"0", "false", "no"}:
         logger.info("Debug UI disabled")
@@ -310,6 +351,8 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _html_response(self, _privacy_html())
             elif parsed.path == "/terms":
                 _html_response(self, _terms_html())
+            elif parsed.path == "/tiktok/demo":
+                _html_response(self, _tiktok_demo_html())
             elif parsed.path == "/tiktok/callback":
                 _html_response(self, _tiktok_callback_html(query))
             elif parsed.path == "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt":
