@@ -143,13 +143,13 @@ class Settings:
     post_time_3: str = field(default_factory=lambda: _get("POST_TIME_3", "19:00"))
 
     # ── Platform toggles ─────────────────────────────────────────────────
-    enable_reddit: bool = field(default_factory=lambda: _bool("ENABLE_REDDIT", True))
-    enable_tiktok: bool = field(default_factory=lambda: _bool("ENABLE_TIKTOK", True))
+    enable_reddit: bool = field(default_factory=lambda: _bool("ENABLE_REDDIT", False))
+    enable_tiktok: bool = field(default_factory=lambda: _bool("ENABLE_TIKTOK", False))
     enable_instagram: bool = field(
-        default_factory=lambda: _bool("ENABLE_INSTAGRAM", True)
+        default_factory=lambda: _bool("ENABLE_INSTAGRAM", False)
     )
     enable_youtube: bool = field(
-        default_factory=lambda: _bool("ENABLE_YOUTUBE", True)
+        default_factory=lambda: _bool("ENABLE_YOUTUBE", False)
     )
 
     # ── Content parameters ────────────────────────────────────────────────
