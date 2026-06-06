@@ -170,6 +170,8 @@ python main.py status
 
 # Deployment/ops checks
 python main.py doctor
+python main.py platform-test
+python main.py platform-test --live
 python main.py backup-db
 python main.py restore-db data/backups/fashion_bot_YYYYMMDD_HHMMSS.db
 python main.py cleanup-temp --days 14

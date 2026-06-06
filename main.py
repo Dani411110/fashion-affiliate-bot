@@ -171,6 +171,146 @@ def doctor(live: bool):
     console.print(table)
 
 
+@cli.command("platform-test")
+@click.option("--live", is_flag=True, help="Run safe live auth checks. Never publishes content.")
+def platform_test(live: bool):
+    """Check platform publishing readiness without posting anything."""
+    from config.settings import get_settings
+
+    s = get_settings()
+    console.print("\n[bold cyan]Platform Readiness[/bold cyan]\n")
+    table = Table(box=box.SIMPLE_HEAVY)
+    table.add_column("Platform", style="bold cyan")
+    table.add_column("Toggle")
+    table.add_column("Config")
+    table.add_column("Safe test")
+    table.add_column("Next action")
+
+    def onoff(value: bool) -> str:
+        return "[green]ON[/green]" if value else "[yellow]OFF[/yellow]"
+
+    def ok(value: bool) -> str:
+        return "[green]OK[/green]" if value else "[red]MISSING[/red]"
+
+    reddit_ready = all([
+        s.reddit_client_id,
+        s.reddit_client_secret,
+        s.reddit_username,
+        s.reddit_password,
+        s.reddit_subreddit,
+    ])
+    reddit_test = "not run"
+    if live and reddit_ready:
+        try:
+            import praw
+            reddit = praw.Reddit(
+                client_id=s.reddit_client_id,
+                client_secret=s.reddit_client_secret,
+                username=s.reddit_username,
+                password=s.reddit_password,
+                user_agent=s.reddit_user_agent,
+            )
+            me = reddit.user.me()
+            subreddit = reddit.subreddit(s.reddit_subreddit)
+            _ = subreddit.display_name
+            reddit_test = f"auth OK as u/{me}"
+        except Exception as exc:
+            reddit_test = f"FAIL: {str(exc)[:90]}"
+    table.add_row(
+        "Reddit",
+        onoff(s.enable_reddit),
+        ok(reddit_ready),
+        reddit_test,
+        "Add Reddit app client_id/client_secret, then ENABLE_REDDIT=true" if not reddit_ready else "Ready for approval publish test",
+    )
+
+    instagram_ready = bool(s.instagram_access_token and s.instagram_user_id)
+    drive_ready = bool(s.drive_folder_queue_id)
+    instagram_test = "not run"
+    if live and instagram_ready:
+        try:
+            import requests
+            resp = requests.get(
+                f"https://graph.facebook.com/v19.0/{s.instagram_user_id}",
+                params={
+                    "fields": "id,username,account_type",
+                    "access_token": s.instagram_access_token,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            instagram_test = f"auth OK @{payload.get('username', payload.get('id', 'unknown'))}"
+        except Exception as exc:
+            instagram_test = f"FAIL: {str(exc)[:90]}"
+    table.add_row(
+        "Instagram",
+        onoff(s.enable_instagram),
+        ok(instagram_ready and drive_ready),
+        instagram_test,
+        "Add IG token/user id + Drive queue folder" if not (instagram_ready and drive_ready) else "Ready for carousel publish test",
+    )
+
+    cookies_path = Path(s.tiktok_cookies_path)
+    cookies_ready = cookies_path.exists()
+    tiktok_ready = bool(s.tiktok_access_token or cookies_ready)
+    tiktok_test = "not run"
+    if live and s.tiktok_access_token:
+        try:
+            import requests
+            resp = requests.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                params={"fields": "open_id,display_name"},
+                headers={"Authorization": f"Bearer {s.tiktok_access_token}"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("error", {}).get("code") not in (None, "ok"):
+                raise RuntimeError(data.get("error", {}).get("message", data))
+            tiktok_test = "API token OK"
+        except Exception as exc:
+            tiktok_test = f"FAIL: {str(exc)[:90]}"
+    elif live and cookies_ready:
+        try:
+            import json
+            raw = json.loads(cookies_path.read_text(encoding="utf-8"))
+            tiktok_test = f"cookies readable ({len(raw)} entries)"
+        except Exception as exc:
+            tiktok_test = f"FAIL: {str(exc)[:90]}"
+    table.add_row(
+        "TikTok",
+        onoff(s.enable_tiktok),
+        ok(tiktok_ready),
+        tiktok_test,
+        "Add Content API token; cookies are fragile on Railway" if not s.tiktok_access_token else "Ready for API publish test",
+    )
+
+    youtube_ready = bool(s.youtube_client_secrets_json)
+    token_path = Path("data/youtube_token.json")
+    youtube_test = "not run"
+    if live and youtube_ready:
+        secrets_path = Path(s.youtube_client_secrets_json)
+        if secrets_path.exists() or s.youtube_client_secrets_json.strip().startswith("{"):
+            youtube_test = "client secrets present"
+            if token_path.exists():
+                youtube_test += ", OAuth token present"
+            else:
+                youtube_test += ", OAuth token missing"
+        else:
+            youtube_test = "FAIL: client secrets path not found"
+    table.add_row(
+        "YouTube",
+        onoff(s.enable_youtube),
+        ok(youtube_ready),
+        youtube_test,
+        "Add OAuth client secrets and run first OAuth locally" if not youtube_ready else "Run OAuth locally before Railway publish",
+    )
+
+    console.print(table)
+    console.print("\n[dim]This command does not publish or modify posts.[/dim]")
+
+
 @cli.command("backup-db")
 @click.option("--dest", default=None, help="Destination .db path. Defaults to data/backups timestamp.")
 def backup_db(dest):

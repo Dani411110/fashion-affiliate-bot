@@ -111,6 +111,8 @@ Local:
 ```powershell
 $env:PYTHONIOENCODING="utf-8"
 python main.py doctor
+python main.py platform-test
+python main.py platform-test --live
 python main.py status
 docker build -t fashion-affiliate-bot:local .
 ```
