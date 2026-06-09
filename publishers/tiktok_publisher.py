@@ -143,9 +143,13 @@ class TikTokPublisher(BasePublisher):
                 await page.goto(_UPLOAD_PAGE, wait_until="domcontentloaded", timeout=30_000)
                 await asyncio.sleep(3)
 
+                current_url = page.url
+                page_title = await page.title()
+                logger.info("TikTok page after load: url={} title={}", current_url, page_title)
+
                 # Detect login wall
-                if "login" in page.url or await page.query_selector("input[name='username']"):
-                    logger.error("TikTok browser: login wall — cookies may be expired")
+                if "login" in current_url or await page.query_selector("input[name='username']"):
+                    logger.error("TikTok browser: login wall — cookies expired or not accepted. URL={}", current_url)
                     return None
 
                 # Switch to photo mode if toggle is visible
@@ -215,8 +219,13 @@ class TikTokPublisher(BasePublisher):
                 logger.error("TikTok browser upload: post button clicked but no success signal")
                 return None
 
-            except Exception:
-                logger.exception("TikTok browser automation error")
+            except Exception as exc:
+                logger.exception("TikTok browser automation error: {}", exc)
+                try:
+                    logger.error("TikTok page URL at error: {}", page.url)
+                    logger.error("TikTok page title at error: {}", await page.title())
+                except Exception:
+                    pass
                 return None
             finally:
                 await browser.close()
