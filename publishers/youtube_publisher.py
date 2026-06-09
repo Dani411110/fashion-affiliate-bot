@@ -32,41 +32,53 @@ _TOKEN_PATH = Path("data/youtube_token.json")
 _MAX_TITLE_LEN = 100
 
 
-def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_image: float = 3.0) -> Path:
-    """Concatenate images into a silent MP4 using ffmpeg.
+_MIN_SHORT_DURATION = 15.0   # YouTube Shorts need ≥15s to perform well
 
-    No effects, no music — just images shown for *seconds_per_image* each.
-    Returns output_path.
+
+def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_image: float = 3.0) -> Path:
+    """Concatenate images into an MP4 with silent AAC audio track using ffmpeg.
+
+    YouTube requires an audio stream to process videos reliably.
+    Each image is shown for *seconds_per_image* seconds; total is padded to
+    at least _MIN_SHORT_DURATION so YouTube Shorts processes it correctly.
     """
     valid = [p for p in image_paths if p.exists()]
     if not valid:
         raise ValueError("No valid images for YouTube video")
+
+    # Ensure each image shows long enough that total meets minimum
+    spi = max(seconds_per_image, _MIN_SHORT_DURATION / len(valid))
+    total_dur = spi * len(valid)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         concat_file = Path(tmpdir) / "concat.txt"
         lines = []
         for img in valid:
             lines.append(f"file '{img.resolve()}'")
-            lines.append(f"duration {seconds_per_image}")
+            lines.append(f"duration {spi}")
         # Repeat last image to avoid ffmpeg EOF truncation
         lines.append(f"file '{valid[-1].resolve()}'")
         concat_file.write_text("\n".join(lines), encoding="utf-8")
 
-        total_dur = seconds_per_image * len(valid)
-
         cmd = [
             "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_file),
+            # Video: image slideshow via concat demuxer
+            "-f", "concat", "-safe", "0", "-i", str(concat_file),
+            # Audio: silent source (YouTube requires an audio stream)
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
             "-vf", (
                 "scale=1080:1920:force_original_aspect_ratio=decrease,"
                 "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
                 "setsar=1"
             ),
-            "-an",                          # no audio
+            "-map", "0:v",
+            "-map", "1:a",
             "-c:v", "libx264",
             "-crf", "23",
+            "-r", "24",
             "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
             "-t", str(total_dur),
             str(output_path),
         ]
@@ -76,8 +88,8 @@ def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_
             raise RuntimeError(f"ffmpeg failed with code {result.returncode}")
 
     logger.info(
-        "YouTube simple video created: {} ({:.0f}s, {} images)",
-        output_path.name, total_dur, len(valid),
+        "YouTube video created: {} ({:.0f}s, {} images, {:.1f}s/image)",
+        output_path.name, total_dur, len(valid), spi,
     )
     return output_path
 
