@@ -74,6 +74,13 @@ def _default_temp_folder() -> str:
     return "data/temp"
 
 
+def _default_product_images_folder() -> str:
+    railway_volume = _get("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume:
+        return str(Path(railway_volume) / "product_images")
+    return "data/product_images"
+
+
 @dataclass
 class Settings:
     # ── OpenAI ───────────────────────────────────────────────────────────
@@ -228,14 +235,19 @@ class Settings:
     temp_folder: Path = field(
         default_factory=lambda: _path("TEMP_FOLDER", _default_temp_folder())
     )
+    product_images_folder: Path = field(
+        default_factory=lambda: _path("PRODUCT_IMAGES_FOLDER", _default_product_images_folder())
+    )
 
     def __post_init__(self):
         self.sqlite_path = Path(self.sqlite_path)
         self.music_folder = Path(self.music_folder)
         self.temp_folder = Path(self.temp_folder)
+        self.product_images_folder = Path(self.product_images_folder)
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         self.music_folder.mkdir(parents=True, exist_ok=True)
         self.temp_folder.mkdir(parents=True, exist_ok=True)
+        self.product_images_folder.mkdir(parents=True, exist_ok=True)
 
 
 _instance: Settings | None = None

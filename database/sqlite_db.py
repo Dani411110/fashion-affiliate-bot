@@ -66,6 +66,7 @@ class SqliteDatabase:
                     price               REAL    NOT NULL DEFAULT 0,
                     tags                TEXT    NOT NULL DEFAULT '',
                     popularity_score    INTEGER NOT NULL DEFAULT 0,
+                    local_image_path    TEXT,
                     last_synced         TEXT    NOT NULL DEFAULT (datetime('now'))
                 );
 
@@ -115,7 +116,21 @@ class SqliteDatabase:
                 );
             """)
             self._ensure_post_columns(conn)
+            self._ensure_product_columns(conn)
         logger.debug("SQLite schema initialised at {}", self.db_path)
+
+    def _ensure_product_columns(self, conn: sqlite3.Connection):
+        """Add columns introduced after initial schema to existing DBs."""
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(products_cache)").fetchall()
+        }
+        columns = {
+            "local_image_path": "TEXT",
+        }
+        for column, ddl in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE products_cache ADD COLUMN {column} {ddl}")
 
     def _ensure_post_columns(self, conn: sqlite3.Connection):
         existing = {
@@ -229,6 +244,22 @@ class SqliteDatabase:
                     ),
                 )
         logger.info("Synced {} products to local cache", len(products))
+
+    def update_product_local_image(self, sheet_row_index: int, local_path: str):
+        """Save the path of the locally cached image for a product."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE products_cache SET local_image_path=? WHERE sheet_row_index=?",
+                (local_path, sheet_row_index),
+            )
+
+    def get_products_without_local_image(self) -> List[Dict[str, Any]]:
+        """Return products that have no cached local image yet."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM products_cache WHERE local_image_path IS NULL OR local_image_path=''"
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_all_cached_products(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:

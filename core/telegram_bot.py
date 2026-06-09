@@ -123,6 +123,7 @@ def _help_text() -> str:
         ".scrape 50 - scrape Pinterest\n"
         ".scrapeproducts 30 - scrape Mulebuy\n"
         ".syncsheet - sync Google Sheet in SQLite\n"
+        ".cacheimages - descarca toate imaginile produselor local\n"
         ".run - sesiune de 3 posturi\n\n"
         "Flow: .start -> categorie -> 5/6/7/8 poze -> preview album -> approve/reject/regenerate."
     )
@@ -468,6 +469,35 @@ async def cmd_scrapeproducts(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"Salvate {len(products)} produse noi din Mulebuy.")
 
 
+async def cmd_cacheimages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    pending = get_db().get_products_without_local_image()
+    if not pending:
+        await update.message.reply_text("✅ Toate imaginile produselor sunt deja descărcate local.")
+        return
+    await update.message.reply_text(
+        f"⬇️ Descarc imaginile pentru {len(pending)} produse... (poate dura câteva minute)"
+    )
+
+    def _do_cache():
+        from scrapers.image_cache import cache_product_images
+        return cache_product_images(max_workers=5)
+
+    try:
+        result = await _run_in_thread(_do_cache)
+        await update.message.reply_text(
+            f"✅ Cache imagini complet!\n"
+            f"• Descărcate: {result['downloaded']}\n"
+            f"• Eșuate: {result['failed']}\n"
+            f"• Total: {result['total']}"
+        )
+    except Exception as exc:
+        logger.exception("Cache images failed")
+        await update.message.reply_text(f"❌ Eroare cache imagini: {exc}")
+
+
 async def cmd_syncsheet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
@@ -733,6 +763,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "scrape": cmd_scrape,
         "scrapeproducts": cmd_scrapeproducts,
         "syncsheet": cmd_syncsheet,
+        "cacheimages": cmd_cacheimages,
     }
     handler = handlers.get(command)
     if handler:
@@ -762,6 +793,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
     app.add_handler(CommandHandler("syncsheet", cmd_syncsheet))
+    app.add_handler(CommandHandler("cacheimages", cmd_cacheimages))
     app.add_handler(MessageHandler(filters.Regex(r"^\s*\.\w+"), dot_command_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
 

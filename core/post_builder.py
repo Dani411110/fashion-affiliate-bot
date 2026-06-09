@@ -157,6 +157,15 @@ class PostBuilder:
             if product_count is not None and len(accepted_products) >= product_count:
                 break
 
+            # ── Use pre-cached local image if available ──────────────────
+            cached_path = product.get("local_image_path", "")
+            if cached_path and Path(cached_path).exists():
+                product_image_paths.append(cached_path)
+                accepted_products.append(product)
+                logger.debug("Using cached image for: {}", product.get("name"))
+                continue
+
+            # ── Fall back to downloading from image_url ──────────────────
             img_url = product.get("image_url", "")
             dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
             if not img_url:
