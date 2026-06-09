@@ -160,23 +160,8 @@ class PostBuilder:
 
         if repgalaxy_all:
             needed = product_count if product_count else self._settings.max_products_per_post
-            # Alege random din FOLDER-URI DIFERITE (varietate)
-            subdirs = [p for p in repgalaxy_dir.iterdir() if p.is_dir()]
-            random.shuffle(subdirs)
-            chosen_paths: List[Path] = []
-            for subdir in subdirs:
-                if len(chosen_paths) >= needed:
-                    break
-                imgs = list(subdir.glob("*.jpg")) + list(subdir.glob("*.jpeg")) + \
-                       list(subdir.glob("*.png")) + list(subdir.glob("*.webp"))
-                if imgs:
-                    chosen_paths.append(random.choice(imgs))
-
-            # Daca avem prea putine foldere, mai adaugam random din toate
-            if len(chosen_paths) < needed:
-                remaining = [p for p in repgalaxy_all if p not in chosen_paths]
-                random.shuffle(remaining)
-                chosen_paths.extend(remaining[:needed - len(chosen_paths)])
+            # Alege complet random din toate imaginile (poate lua mai multe din acelasi folder)
+            chosen_paths = random.sample(repgalaxy_all, min(needed, len(repgalaxy_all)))
 
             for path in chosen_paths[:needed]:
                 product_image_paths.append(str(path.resolve()))
