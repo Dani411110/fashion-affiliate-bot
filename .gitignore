@@ -3,7 +3,6 @@
 config/service_account.json
 config/youtube_client_secret*.json
 data/youtube_token.json
-data/tiktok_cookies.json
 
 # Date locale
 data/temp/
