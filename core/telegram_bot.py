@@ -562,6 +562,16 @@ async def cmd_scrapeproducts(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"Salvate {len(products)} produse noi din Mulebuy.")
 
 
+async def cmd_resetpinterest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    count = get_db().reset_all_pinterest_images()
+    await update.message.reply_text(
+        f"✅ {count} poze Pinterest marcate ca nefolosite. Poti rula .start din nou."
+    )
+
+
 async def cmd_cacheimages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
@@ -876,6 +886,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "scrapeproducts": cmd_scrapeproducts,
         "syncsheet": cmd_syncsheet,
         "cacheimages": cmd_cacheimages,
+        "resetpinterest": cmd_resetpinterest,
     }
     handler = handlers.get(command)
     if handler:
