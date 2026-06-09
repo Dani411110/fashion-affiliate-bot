@@ -60,6 +60,13 @@ def _default_sqlite_path() -> str:
     return "data/fashion_bot.db"
 
 
+def _default_youtube_token_path() -> str:
+    railway_volume = _get("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume:
+        return str(Path(railway_volume) / "youtube_token.json")
+    return "data/youtube_token.json"
+
+
 @dataclass
 class Settings:
     # ── OpenAI ───────────────────────────────────────────────────────────
@@ -116,6 +123,12 @@ class Settings:
     # ── YouTube ──────────────────────────────────────────────────────────
     youtube_client_secrets_json: str = field(
         default_factory=lambda: _get("YOUTUBE_CLIENT_SECRETS_JSON")
+    )
+    youtube_token_json: str = field(
+        default_factory=lambda: _get("YOUTUBE_TOKEN_JSON", "")
+    )
+    youtube_token_path: str = field(
+        default_factory=lambda: _get("YOUTUBE_TOKEN_PATH", _default_youtube_token_path())
     )
 
     # ── TikTok ───────────────────────────────────────────────────────────

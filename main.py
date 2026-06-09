@@ -429,9 +429,50 @@ def youtube_auth_url():
         include_granted_scopes="true",
         prompt="consent",
     )
+    verifier_path = Path("data/.youtube_code_verifier")
+    verifier_path.parent.mkdir(parents=True, exist_ok=True)
+    verifier_path.write_text(flow.code_verifier or "", encoding="utf-8")
     console.print(f"[yellow]Redirect URI:[/yellow] {redirect_uri}")
     console.print("[green]Open this URL and approve YouTube access:[/green]")
     console.print(url)
+
+
+@cli.command("youtube-auth")
+@click.option("--port", default=8081, show_default=True, help="Local port for OAuth callback.")
+def youtube_auth(port: int):
+    """Full local YouTube OAuth flow — opens browser, captures code automatically."""
+    from config.settings import get_settings
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    s = get_settings()
+    if not s.youtube_client_secrets_json:
+        console.print("[red]YOUTUBE_CLIENT_SECRETS_JSON is missing.[/red]")
+        return
+
+    secrets_path = s.youtube_client_secrets_json
+    if not Path(secrets_path).exists():
+        tmp = Path("data/youtube_client_secrets.json")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(s.youtube_client_secrets_json, encoding="utf-8")
+        secrets_path = str(tmp)
+
+    console.print(f"[yellow]Starting local OAuth server on port {port}...[/yellow]")
+    console.print("[yellow]Browser will open automatically. Approve access then return here.[/yellow]")
+
+    flow = InstalledAppFlow.from_client_secrets_file(
+        secrets_path,
+        scopes=["https://www.googleapis.com/auth/youtube.upload"],
+    )
+    creds = flow.run_local_server(
+        port=port,
+        access_type="offline",
+        prompt="consent",
+        open_browser=True,
+    )
+    token_path = Path("data/youtube_token.json")
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json(), encoding="utf-8")
+    console.print(f"[green]YouTube OAuth token saved:[/green] {token_path}")
 
 
 @cli.command("youtube-exchange-code")
@@ -459,7 +500,11 @@ def youtube_exchange_code(code: str):
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
         redirect_uri=redirect_uri,
     )
+    verifier_path = Path("data/.youtube_code_verifier")
+    if verifier_path.exists():
+        flow.code_verifier = verifier_path.read_text(encoding="utf-8").strip() or None
     flow.fetch_token(code=code)
+    verifier_path.unlink(missing_ok=True)
     token_path = Path("data/youtube_token.json")
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(flow.credentials.to_json(), encoding="utf-8")

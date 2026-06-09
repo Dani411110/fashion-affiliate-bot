@@ -84,12 +84,22 @@ def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_
 class YouTubePublisher(BasePublisher):
     platform_name = "youtube"
 
-    def __init__(self, client_secrets_json: str, token_path: Optional[Path] = None, seconds_per_image: float = 3.0):
+    def __init__(self, client_secrets_json: str, token_path: Optional[Path] = None,
+                 token_json: Optional[str] = None, seconds_per_image: float = 3.0):
         self._secrets_json = client_secrets_json
         self._token_path = Path(token_path or _TOKEN_PATH)
+        self._token_json = token_json  # raw JSON from env var (Railway)
         self._seconds_per_image = seconds_per_image
         self._service = None
+        self._bootstrap_token()
         logger.info("YouTubePublisher initialised (simple image slideshow for YouTube)")
+
+    def _bootstrap_token(self):
+        """Write YOUTUBE_TOKEN_JSON env var to disk if token file is missing."""
+        if self._token_json and not self._token_path.exists():
+            self._token_path.parent.mkdir(parents=True, exist_ok=True)
+            self._token_path.write_text(self._token_json, encoding="utf-8")
+            logger.info("YouTube token bootstrapped from env var to {}", self._token_path)
 
     def _get_service(self):
         if self._service:

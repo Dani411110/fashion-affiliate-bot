@@ -11,6 +11,7 @@ Daily session scheduler — builds, reviews, and queues 3 posts per day.
 
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from rich.console import Console
@@ -131,6 +132,8 @@ def _publish_package(package: PostPackage):
         publishers.append(
             YouTubePublisher(
                 settings.youtube_client_secrets_json,
+                token_path=Path(settings.youtube_token_path),
+                token_json=settings.youtube_token_json or None,
                 seconds_per_image=settings.video_seconds_per_image,
             )
         )

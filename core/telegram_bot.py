@@ -300,6 +300,8 @@ async def _publish_package(pkg):
             from publishers.youtube_publisher import YouTubePublisher
             publishers.append(YouTubePublisher(
                 settings.youtube_client_secrets_json,
+                token_path=Path(settings.youtube_token_path),
+                token_json=settings.youtube_token_json or None,
                 seconds_per_image=settings.video_seconds_per_image,
             ))
 
