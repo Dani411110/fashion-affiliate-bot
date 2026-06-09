@@ -142,23 +142,44 @@ class PostBuilder:
         temp_dir = self._settings.temp_folder / "products"
         temp_dir.mkdir(parents=True, exist_ok=True)
         product_image_paths: List[str] = []
+        accepted_products: List[Dict[str, Any]] = []
+
+        _MIN_DIM = 400  # pixels — skip thumbnails/low-res images
 
         for product in selected_products:
             img_url = product.get("image_url", "")
             dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
             if not img_url:
-                logger.warning("Product '{}' has no image_url - creating placeholder", product.get("name"))
-                _make_product_placeholder(product, dest)
-                product_image_paths.append(str(dest))
+                logger.warning("Skipping product '{}' — no image_url", product.get("name"))
                 continue
             try:
                 download_image(img_url, dest)
+                from PIL import Image as _PILImage
+                with _PILImage.open(dest) as _im:
+                    w, h = _im.size
+                if w < _MIN_DIM or h < _MIN_DIM:
+                    logger.warning(
+                        "Skipping product '{}' — image too small ({}x{} < {}px)",
+                        product.get("name"), w, h, _MIN_DIM,
+                    )
+                    dest.unlink(missing_ok=True)
+                    continue
                 product_image_paths.append(str(dest))
-                logger.debug("Downloaded product image: {}", dest.name)
+                accepted_products.append(product)
+                logger.debug("Downloaded product image: {}x{} → {}", w, h, dest.name)
             except Exception:
                 logger.exception("Failed to download product image: {}", img_url[:80])
-                _make_product_placeholder(product, dest)
-                product_image_paths.append(str(dest))
+                # Don't add placeholder — skip the product to keep carousel quality
+
+        if not accepted_products:
+            raise RuntimeError("All product images were too small or failed to download")
+
+        selected_products = accepted_products
+        logger.info(
+            "{} products accepted after image quality filter (min {}px)",
+            len(selected_products), _MIN_DIM,
+        )
+
         # All images in carousel order: inspiration first, then products
         all_images = [str(pinterest_image_path)] + product_image_paths
 
