@@ -263,11 +263,10 @@ _TARGET_H = 1350  # 4:5 portrait — standard social media
 
 
 def _to_jpeg_bytes(path: Path) -> bytes:
-    """Resize to phone-friendly format (1080x1350, 4:5 portrait) and return JPEG bytes.
+    """Resize to phone-friendly 4:5 portrait using crop-to-fill.
 
-    - Scales image so it fits inside 1080x1350, keeping original aspect ratio
-    - Pastes on white canvas of exactly 1080x1350 (no cropping, no distortion)
-    - Upscales small images to 1080px wide so they're sharp on phone
+    Scales the image so it fully covers 1080x1350, then center-crops.
+    No background added — original image fills the entire frame.
     """
     from PIL import Image as _PIL
     import io
@@ -275,27 +274,19 @@ def _to_jpeg_bytes(path: Path) -> bytes:
     with _PIL.open(path) as im:
         im = im.convert("RGB")
 
-        # Scale to fit inside target canvas, maintaining aspect ratio
-        im.thumbnail((_TARGET_W, _TARGET_H), _PIL.LANCZOS)
+        # Scale so image covers entire 1080x1350 (whichever side hits first, scale by the other)
+        scale = max(_TARGET_W / im.width, _TARGET_H / im.height)
+        new_w = int(im.width * scale)
+        new_h = int(im.height * scale)
+        im = im.resize((new_w, new_h), _PIL.LANCZOS)
 
-        # If image is smaller than target, scale UP to at least target width
-        if im.width < _TARGET_W:
-            scale = _TARGET_W / im.width
-            new_h = int(im.height * scale)
-            im = im.resize((_TARGET_W, new_h), _PIL.LANCZOS)
-            # After upscale, if taller than canvas, scale down to fit height
-            if new_h > _TARGET_H:
-                scale2 = _TARGET_H / new_h
-                im = im.resize((int(_TARGET_W * scale2), _TARGET_H), _PIL.LANCZOS)
-
-        # Center on white 1080x1350 canvas
-        canvas = _PIL.new("RGB", (_TARGET_W, _TARGET_H), (255, 255, 255))
-        x = (_TARGET_W - im.width) // 2
-        y = (_TARGET_H - im.height) // 2
-        canvas.paste(im, (x, y))
+        # Center crop to exactly 1080x1350
+        left = (new_w - _TARGET_W) // 2
+        top = (new_h - _TARGET_H) // 2
+        im = im.crop((left, top, left + _TARGET_W, top + _TARGET_H))
 
         buf = io.BytesIO()
-        canvas.save(buf, format="JPEG", quality=92, optimize=True)
+        im.save(buf, format="JPEG", quality=92, optimize=True)
         return buf.getvalue()
 
 
