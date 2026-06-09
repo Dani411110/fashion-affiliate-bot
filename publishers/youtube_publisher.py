@@ -191,21 +191,23 @@ class YouTubePublisher(BasePublisher):
         service.commentThreads().insert(part="snippet", body=body).execute()
 
     def _resolve_images(self, post_package: Any) -> List[Path]:
-        """Return image paths for the video, re-downloading from public_image_urls if local files are gone."""
+        """Return image paths for the video, re-downloading from source URLs if local files are gone.
+
+        Google Drive /uc?export=download URLs return an HTML confirmation page for files
+        over ~100KB (virus-scan warning), so we use the original product image_url instead.
+        Layout of all_images: index 0 = Pinterest inspiration, index 1+ = products.
+        """
         local_paths = [Path(p) for p in (post_package.all_images or [])]
         existing = [p for p in local_paths if p.exists()]
 
         if len(existing) == len(local_paths) and existing:
             return existing
 
-        # Some or all local images are missing — re-download from public URLs
+        products = list(post_package.products or [])
         public_urls = list(post_package.public_image_urls or [])
-        if not public_urls:
-            return existing
-
         missing_count = len(local_paths) - len(existing)
         logger.warning(
-            "{}/{} local images missing — re-downloading from public_image_urls",
+            "{}/{} local images missing — re-downloading from source URLs",
             missing_count, len(local_paths),
         )
 
@@ -213,28 +215,51 @@ class YouTubePublisher(BasePublisher):
         dl_dir = Path(volume) / "temp" / "yt_fallback"
         dl_dir.mkdir(parents=True, exist_ok=True)
 
-        fallback: List[Path] = []
-        for idx, url in enumerate(public_urls):
+        result: List[Path] = []
+        for i, local_path in enumerate(local_paths):
+            if local_path.exists():
+                result.append(local_path)
+                continue
+
+            # Pick the best source URL for this slot:
+            # slot 0 = Pinterest (use Drive URL as-is — it's a smaller file and usually works)
+            # slot 1+ = product images (use original image_url from scraper, avoids Drive auth)
+            if i == 0:
+                url = public_urls[0] if public_urls else ""
+            else:
+                product_idx = i - 1
+                if product_idx < len(products):
+                    url = products[product_idx].get("image_url", "")
+                else:
+                    url = public_urls[i] if i < len(public_urls) else ""
+
             if not url:
+                logger.warning("No fallback URL for image slot {}", i)
                 continue
-            dest = dl_dir / f"yt_img_{post_package.post_id}_{idx:02d}.jpg"
+
+            dest = dl_dir / f"yt_img_{post_package.post_id}_{i:02d}.jpg"
             if dest.exists():
-                fallback.append(dest)
+                result.append(dest)
                 continue
+
             try:
                 resp = requests.get(
                     url, timeout=30,
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                    stream=True,
                 )
                 resp.raise_for_status()
-                dest.write_bytes(resp.content)
-                fallback.append(dest)
-                logger.debug("Re-downloaded image {} → {}", idx, dest.name)
+                content = resp.content
+                # Reject Drive HTML virus-scan pages (200 OK but not an image)
+                if content[:5] in (b"<!DOC", b"<html", b"<HTML") or b"<html" in content[:200]:
+                    logger.warning("Got HTML instead of image at slot {} — skipping: {}", i, url[:60])
+                    continue
+                dest.write_bytes(content)
+                result.append(dest)
+                logger.debug("Re-downloaded slot {} → {}", i, dest.name)
             except Exception as exc:
-                logger.warning("Could not re-download image {}: {}", url[:80], exc)
+                logger.warning("Could not download image slot {}: {}", i, exc)
 
-        return fallback if fallback else existing
+        return result if result else existing
 
     def publish(self, post_package: Any) -> PublishResult:
         try:
