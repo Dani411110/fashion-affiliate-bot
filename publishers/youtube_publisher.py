@@ -33,14 +33,42 @@ _MAX_TITLE_LEN = 100
 
 
 _MIN_SHORT_DURATION = 15.0   # YouTube Shorts need ≥15s to perform well
+_VIDEO_W, _VIDEO_H = 1080, 1920
+
+
+def _prescale_images(image_paths: List[Path], tmp_dir: Path) -> List[Path]:
+    """Pre-scale images to 1080x1920 with PIL before handing them to ffmpeg.
+
+    ffmpeg loading full-resolution originals (e.g. 3000x4000) into memory for
+    every frame causes OOM kills on Railway. Pre-scaling with PIL keeps each
+    image under ~6MB in memory instead of ~36MB.
+    """
+    from PIL import Image as _PILImage
+    scaled: List[Path] = []
+    for i, src in enumerate(image_paths):
+        dest = tmp_dir / f"pre_{i:02d}.jpg"
+        try:
+            with _PILImage.open(src) as im:
+                im = im.convert("RGB")
+                im.thumbnail((_VIDEO_W, _VIDEO_H), _PILImage.LANCZOS)
+                # Paste onto black 1080x1920 canvas (letterbox / pillarbox)
+                canvas = _PILImage.new("RGB", (_VIDEO_W, _VIDEO_H), (0, 0, 0))
+                x = (_VIDEO_W - im.width) // 2
+                y = (_VIDEO_H - im.height) // 2
+                canvas.paste(im, (x, y))
+                canvas.save(dest, "JPEG", quality=88, optimize=True)
+            scaled.append(dest)
+        except Exception as exc:
+            logger.warning("Pre-scale failed for {}: {} — using original", src.name, exc)
+            scaled.append(src)
+    return scaled
 
 
 def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_image: float = 3.0) -> Path:
-    """Concatenate images into an MP4 with silent AAC audio track using ffmpeg.
+    """Concatenate pre-scaled images into an MP4 with silent AAC audio track.
 
-    YouTube requires an audio stream to process videos reliably.
-    Each image is shown for *seconds_per_image* seconds; total is padded to
-    at least _MIN_SHORT_DURATION so YouTube Shorts processes it correctly.
+    Images are pre-scaled to 1080x1920 with PIL before ffmpeg to avoid OOM
+    kills on memory-limited containers (Railway free tier).
     """
     valid = [p for p in image_paths if p.exists()]
     if not valid:
@@ -51,34 +79,38 @@ def _build_simple_video(image_paths: List[Path], output_path: Path, seconds_per_
     total_dur = spi * len(valid)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        concat_file = Path(tmpdir) / "concat.txt"
+        tmp_path = Path(tmpdir)
+
+        # Pre-scale images to reduce ffmpeg memory usage
+        scaled = _prescale_images(valid, tmp_path)
+
+        concat_file = tmp_path / "concat.txt"
         lines = []
-        for img in valid:
+        for img in scaled:
             lines.append(f"file '{img.resolve()}'")
             lines.append(f"duration {spi}")
         # Repeat last image to avoid ffmpeg EOF truncation
-        lines.append(f"file '{valid[-1].resolve()}'")
+        lines.append(f"file '{scaled[-1].resolve()}'")
         concat_file.write_text("\n".join(lines), encoding="utf-8")
 
         cmd = [
             "ffmpeg", "-y",
-            # Video: image slideshow via concat demuxer
+            # Video: pre-scaled image slideshow
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
             # Audio: silent source (YouTube requires an audio stream)
             "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-vf", (
-                "scale=1080:1920:force_original_aspect_ratio=decrease,"
-                "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
-                "setsar=1"
-            ),
+            # Images already at 1080x1920 — just ensure correct SAR
+            "-vf", "setsar=1",
             "-map", "0:v",
             "-map", "1:a",
             "-c:v", "libx264",
+            "-preset", "faster",    # less CPU/time; tiny quality trade-off
             "-crf", "23",
             "-r", "24",
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "128k",
+            "-threads", "2",        # cap threads to limit peak memory
             "-t", str(total_dur),
             str(output_path),
         ]
