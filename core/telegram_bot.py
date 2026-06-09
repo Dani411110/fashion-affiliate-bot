@@ -179,9 +179,9 @@ def _format_queue_rows() -> str:
 
     lines.append("\n*Ultimele postari:*")
     for row in rows:
-        caption = shorten((row.get("caption") or "").replace("\n", " "), width=70, placeholder="...")
+        caption = _escape_md(shorten((row.get("caption") or "").replace("\n", " "), width=70, placeholder="..."))
         lines.append(
-            f"#{row['id']} | {row['status']} | {row['category']} | {row.get('carousel_image_count', 0)} poze"
+            f"#{row['id']} | {_escape_md(str(row['status']))} | {_escape_md(str(row['category']))} | {row.get('carousel_image_count', 0)} poze"
         )
         if caption:
             lines.append(f"  {caption}")
@@ -426,9 +426,9 @@ async def cmd_postqueue(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines = [f"*Post #{pkg.post_id}*"]
             for platform, result in results:
                 if result.success:
-                    lines.append(f"{platform.upper()}: {result.url or result.platform_post_id}")
+                    lines.append(f"{platform.upper()}: {_escape_md(str(result.url or result.platform_post_id or ''))}")
                 else:
-                    lines.append(f"{platform.upper()} failed: {result.error[:100]}")
+                    lines.append(f"{platform.upper()} failed: {_escape_md(str(result.error or '')[:100])}")
             await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
         except Exception as exc:
             logger.exception("Queued publish failed for post {}", record.get("id"))
@@ -591,13 +591,13 @@ async def _handle_approve(update: Update, context: ContextTypes.DEFAULT_TYPE, po
             lines = ["*Publicat pe platformele disponibile!*\n"]
             for platform, result in results:
                 if result.success:
-                    lines.append(f"{platform.upper()}: {result.url or result.platform_post_id}")
+                    lines.append(f"{platform.upper()}: {_escape_md(str(result.url or result.platform_post_id or ''))}")
                 else:
-                    lines.append(f"{platform.upper()} failed: {result.error[:80]}")
+                    lines.append(f"{platform.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
         else:
             lines = ["*Post aprobat, dar publicarea a esuat pe toate platformele.*\n"]
             for platform, result in results:
-                lines.append(f"{platform.upper()} failed: {result.error[:80]}")
+                lines.append(f"{platform.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
         await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as exc:
         logger.exception("Publish failed")
