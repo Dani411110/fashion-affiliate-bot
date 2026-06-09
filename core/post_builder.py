@@ -94,13 +94,17 @@ class PostBuilder:
             raise RuntimeError("No products available. Run .scrapeproducts 30 first.")
 
         # Step 2 — Select products via CategorySelector
+        # Request extra products as buffer so image-quality filtering still
+        # yields exactly the requested count.
         logger.info("[2/7] Selecting products via CategorySelector")
         exclude_ids = self._db.get_recently_used_product_rows(last_n_posts=10)
         selector = get_category_selector()
+        _QUALITY_BUFFER = 4  # extra candidates to absorb low-quality image rejections
+        candidate_count = (product_count + _QUALITY_BUFFER) if product_count else None
         selected_products = selector.select_by_name(
             category_name,
             cached_products,
-            count=product_count,
+            count=candidate_count,
             exclude_ids=exclude_ids,
         )
         if not selected_products:
@@ -137,8 +141,10 @@ class PostBuilder:
             download_image(pinterest_record["url"], pinterest_image_path)
             make_vertical(pinterest_image_path)
 
-        # Step 4 — Download product images from Sheet image_url
-        logger.info("[4/7] Downloading {} product images from Sheet", len(selected_products))
+        # Step 4 — Download product images and filter by quality
+        # We iterate all candidates but stop once we have exactly product_count
+        # good images (the extra candidates absorbed any low-quality rejections).
+        logger.info("[4/7] Downloading up to {} candidate product images", len(selected_products))
         temp_dir = self._settings.temp_folder / "products"
         temp_dir.mkdir(parents=True, exist_ok=True)
         product_image_paths: List[str] = []
@@ -147,6 +153,10 @@ class PostBuilder:
         _MIN_DIM = 400  # pixels — skip thumbnails/low-res images
 
         for product in selected_products:
+            # Stop as soon as we have the exact count the user asked for
+            if product_count is not None and len(accepted_products) >= product_count:
+                break
+
             img_url = product.get("image_url", "")
             dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
             if not img_url:
