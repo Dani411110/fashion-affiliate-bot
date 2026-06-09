@@ -11,6 +11,7 @@ Each image is shown for VIDEO_SECONDS_PER_IMAGE seconds.
 import subprocess
 import tempfile
 import os
+import requests
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -177,15 +178,65 @@ class YouTubePublisher(BasePublisher):
         }
         service.commentThreads().insert(part="snippet", body=body).execute()
 
+    def _resolve_images(self, post_package: Any) -> List[Path]:
+        """Return image paths for the video, re-downloading from public_image_urls if local files are gone."""
+        local_paths = [Path(p) for p in (post_package.all_images or [])]
+        existing = [p for p in local_paths if p.exists()]
+
+        if len(existing) == len(local_paths) and existing:
+            return existing
+
+        # Some or all local images are missing — re-download from public URLs
+        public_urls = list(post_package.public_image_urls or [])
+        if not public_urls:
+            return existing
+
+        missing_count = len(local_paths) - len(existing)
+        logger.warning(
+            "{}/{} local images missing — re-downloading from public_image_urls",
+            missing_count, len(local_paths),
+        )
+
+        volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "data")
+        dl_dir = Path(volume) / "temp" / "yt_fallback"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+
+        fallback: List[Path] = []
+        for idx, url in enumerate(public_urls):
+            if not url:
+                continue
+            dest = dl_dir / f"yt_img_{post_package.post_id}_{idx:02d}.jpg"
+            if dest.exists():
+                fallback.append(dest)
+                continue
+            try:
+                resp = requests.get(
+                    url, timeout=30,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                    stream=True,
+                )
+                resp.raise_for_status()
+                dest.write_bytes(resp.content)
+                fallback.append(dest)
+                logger.debug("Re-downloaded image {} → {}", idx, dest.name)
+            except Exception as exc:
+                logger.warning("Could not re-download image {}: {}", url[:80], exc)
+
+        return fallback if fallback else existing
+
     def publish(self, post_package: Any) -> PublishResult:
         try:
-            image_paths = [Path(p) for p in (post_package.all_images or []) if Path(p).exists()]
+            image_paths = self._resolve_images(post_package)
             if not image_paths:
                 raise FileNotFoundError("No images available for YouTube video")
 
-            # Build temp video
+            logger.info("Building YouTube video from {} images", len(image_paths))
+
+            # Store temp video on persistent volume when possible
+            volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "data")
+            tmp_dir = Path(volume) / "temp"
             import tempfile as _tempfile
-            tmp_video = Path(_tempfile.mktemp(suffix="_yt.mp4", dir="data/temp"))
+            tmp_video = Path(_tempfile.mktemp(suffix="_yt.mp4", dir=tmp_dir))
             tmp_video.parent.mkdir(parents=True, exist_ok=True)
 
             video_path = _build_simple_video(

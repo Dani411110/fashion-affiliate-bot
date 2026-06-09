@@ -67,6 +67,13 @@ def _default_youtube_token_path() -> str:
     return "data/youtube_token.json"
 
 
+def _default_temp_folder() -> str:
+    railway_volume = _get("RAILWAY_VOLUME_MOUNT_PATH")
+    if railway_volume:
+        return str(Path(railway_volume) / "temp")
+    return "data/temp"
+
+
 @dataclass
 class Settings:
     # ── OpenAI ───────────────────────────────────────────────────────────
@@ -219,7 +226,7 @@ class Settings:
         default_factory=lambda: _path("MUSIC_FOLDER", "data/music")
     )
     temp_folder: Path = field(
-        default_factory=lambda: _path("TEMP_FOLDER", "data/temp")
+        default_factory=lambda: _path("TEMP_FOLDER", _default_temp_folder())
     )
 
     def __post_init__(self):
