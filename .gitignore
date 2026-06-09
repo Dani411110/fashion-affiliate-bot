@@ -24,3 +24,4 @@ generate_preview.py
 preview_post.py
 post_preview.html
 inspect_mulebuy*.py
+data/tiktok_cookies.json
