@@ -211,27 +211,34 @@ def _stock_blocking_message(image_count: int) -> Optional[str]:
     )
 
 
+def _escape_md(text: str) -> str:
+    """Escape Markdown v1 special chars in dynamic content."""
+    for ch in r"\_*`[]()":
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
 def _format_preview(pkg) -> str:
     lines = [
         f"*Post #{pkg.post_id}*",
-        f"Categoria: {pkg.category}",
+        f"Categoria: {_escape_md(str(pkg.category))}",
         f"Carusel: {len(pkg.all_images)} imagini",
         "",
         "*Produse:*",
     ]
     for idx, p in enumerate(pkg.products, start=1):
-        name = shorten(str(p.get("name", "Product")), width=42, placeholder="...")
+        name = _escape_md(shorten(str(p.get("name", "Product")), width=42, placeholder="..."))
         price = float(p.get("price", 0) or 0)
         link = p.get("mulebuy_link", "")
         lines.append(f"{idx}. [{name}]({link}) - ${price:.2f}")
 
-    reddit = pkg.formatted_captions.get("reddit", "")
-    instagram = pkg.formatted_captions.get("instagram", "")
-    tiktok = pkg.formatted_captions.get("tiktok", "")
+    reddit = _escape_md(shorten(pkg.formatted_captions.get("reddit", ""), width=700, placeholder="..."))
+    tiktok = _escape_md(shorten(pkg.formatted_captions.get("tiktok", ""), width=500, placeholder="..."))
+    instagram = _escape_md(shorten(pkg.formatted_captions.get("instagram", ""), width=500, placeholder="..."))
 
-    lines += ["", "*Reddit:*", shorten(reddit, width=700, placeholder="...")]
-    lines += ["", "*TikTok:*", shorten(tiktok, width=500, placeholder="...")]
-    lines += ["", "*Instagram:*", shorten(instagram, width=500, placeholder="...")]
+    lines += ["", "*Reddit:*", reddit]
+    lines += ["", "*TikTok:*", tiktok]
+    lines += ["", "*Instagram:*", instagram]
     return "\n".join(lines)
 
 async def _send_post_preview(bot: Bot, chat_id: int, pkg):
