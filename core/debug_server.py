@@ -116,7 +116,8 @@ def _safe_db_stats() -> dict[str, Any]:
 
 def _platform_readiness(settings: Settings) -> dict[str, Any]:
     cookies_path = Path(settings.tiktok_cookies_path)
-    youtube_token = Path("data/youtube_token.json")
+    youtube_token = Path(settings.youtube_token_path)
+    youtube_token_ok = youtube_token.exists() or bool(settings.youtube_token_json)
     drive_ready = all(
         [
             settings.drive_folder_queue_id,
@@ -151,9 +152,9 @@ def _platform_readiness(settings: Settings) -> dict[str, Any]:
         },
         "youtube": {
             "enabled": settings.enable_youtube,
-            "configured": bool(settings.youtube_client_secrets_json and youtube_token.exists()),
+            "configured": bool(settings.youtube_client_secrets_json and youtube_token_ok),
             "client_secrets": bool(settings.youtube_client_secrets_json),
-            "oauth_token": youtube_token.exists(),
+            "oauth_token": youtube_token_ok,
             "next_action": "Run local OAuth and store data/youtube_token.json, then enable YouTube",
         },
     }
@@ -435,7 +436,20 @@ def _tiktok_demo_html() -> str:
 </html>"""
 
 
+def _bootstrap_youtube_token(settings: Settings) -> None:
+    """Write YOUTUBE_TOKEN_JSON env var to disk at startup if token file is missing."""
+    if not settings.youtube_token_json:
+        return
+    token_path = Path(settings.youtube_token_path)
+    if not token_path.exists():
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(settings.youtube_token_json, encoding="utf-8")
+        logger.info("YouTube token bootstrapped from env var to {}", token_path)
+
+
 def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
+    _bootstrap_youtube_token(settings)
+
     if os.getenv("ENABLE_DEBUG_UI", "true").strip().lower() in {"0", "false", "no"}:
         logger.info("Debug UI disabled")
         return None
