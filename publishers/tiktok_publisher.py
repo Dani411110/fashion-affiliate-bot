@@ -104,7 +104,16 @@ class TikTokPublisher(BasePublisher):
             return None
 
         # Normalise cookie format (from browser extensions vary)
+        _SAMESITE_MAP = {
+            "strict": "Strict",
+            "lax": "Lax",
+            "none": "None",
+            "no_restriction": "None",
+        }
+
         def _normalise(c: dict) -> dict:
+            raw_ss = c.get("sameSite") or "Lax"
+            same_site = _SAMESITE_MAP.get(str(raw_ss).lower(), "Lax")
             return {
                 "name": c.get("name", c.get("Name", "")),
                 "value": c.get("value", c.get("Value", "")),
@@ -112,7 +121,7 @@ class TikTokPublisher(BasePublisher):
                 "path": c.get("path", "/"),
                 "secure": c.get("secure", True),
                 "httpOnly": c.get("httpOnly", False),
-                "sameSite": c.get("sameSite", "Lax"),
+                "sameSite": same_site,
             }
 
         cookies = [_normalise(c) for c in cookies_raw if c.get("name") or c.get("Name")]

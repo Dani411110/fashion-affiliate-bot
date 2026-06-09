@@ -20,7 +20,7 @@ from database.sqlite_db import get_db
 from drive.google_drive import get_drive_client
 from scrapers.mulebuy_scraper import get_cached_products, scrape_mulebuy
 from scrapers.pinterest_scraper import scrape_batch
-from utils.image_utils import download_image, make_vertical
+from utils.image_utils import download_image
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -94,13 +94,14 @@ class PostBuilder:
             raise RuntimeError("No products available. Run .scrapeproducts 30 first.")
 
         # Step 2 — Select products via CategorySelector
-        # Request extra products as buffer so image-quality filtering still
-        # yields exactly the requested count.
+        # Request 3x the needed count as buffer — image download failures and
+        # quality rejections won't leave us short of the requested image_count.
         logger.info("[2/7] Selecting products via CategorySelector")
         exclude_ids = self._db.get_recently_used_product_rows(last_n_posts=10)
         selector = get_category_selector()
-        _QUALITY_BUFFER = 4  # extra candidates to absorb low-quality image rejections
-        candidate_count = (product_count + _QUALITY_BUFFER) if product_count else None
+        # Request at least 3× the needed products so we have enough after filtering
+        _QUALITY_BUFFER = max(15, (product_count or 0) * 2)
+        candidate_count = ((product_count or 0) + _QUALITY_BUFFER) if product_count else None
         selected_products = selector.select_by_name(
             category_name,
             cached_products,
@@ -110,94 +111,130 @@ class PostBuilder:
         if not selected_products:
             raise RuntimeError("CategorySelector returned no products")
 
-        # Step 3 — Get unused Pinterest image (trigger scraper if stock low)
-        logger.info("[3/7] Fetching Pinterest inspiration image")
+        # Step 3 — Prima poza: foto Pinterest cu outfit (persoana cu haine)
+        # Pozele din repgalaxy sunt imagini de produs si se folosesc la Step 4.
+        logger.info("[3/7] Fetching Pinterest outfit photo (prima poza din carusel)")
+        import random
+
         unused_count = self._db.count_unused_pinterest_images()
         if allow_auto_scrape and unused_count < self._settings.min_pinterest_stock:
             logger.info(
-                "Pinterest stock low ({} < {}), triggering scrape",
-                unused_count,
-                self._settings.min_pinterest_stock,
+                "Pinterest stock scazut ({} < {}), triggerez scrape",
+                unused_count, self._settings.min_pinterest_stock,
             )
             try:
                 scrape_batch(target_count=15)
             except Exception:
-                logger.exception("Pinterest scrape failed — continuing with existing stock")
+                logger.exception("Pinterest scrape failed — continuam cu stocul existent")
 
-        unused_images = self._db.get_unused_pinterest_images(limit=5)
+        # Ia doar pozele reale Pinterest (nu repgalaxy) pentru prima poza
+        unused_images = self._db.get_pinterest_outfit_images(limit=10)
+        if not unused_images:
+            # Fallback: orice poza disponibila
+            unused_images = self._db.get_unused_pinterest_images(limit=10)
         if not unused_images:
             raise RuntimeError(
-                "No unused Pinterest images available. Run: python main.py scrape"
+                "Nicio poza Pinterest disponibila. Ruleaza: python main.py scrape 20"
             )
 
-        import random
         pinterest_record = random.choice(unused_images)
         pinterest_image_path = Path(pinterest_record["local_path"])
         if not pinterest_image_path.exists():
-            logger.warning(
-                "Local Pinterest image missing: {} — re-downloading",
-                pinterest_image_path,
-            )
+            logger.warning("Poza Pinterest lipsa local: {} — redownload", pinterest_image_path)
             download_image(pinterest_record["url"], pinterest_image_path)
-            make_vertical(pinterest_image_path)
+        logger.info("Prima poza (Pinterest outfit): {}", pinterest_image_path.name)
 
-        # Step 4 — Download product images and filter by quality
-        # We iterate all candidates but stop once we have exactly product_count
-        # good images (the extra candidates absorbed any low-quality rejections).
-        logger.info("[4/7] Downloading up to {} candidate product images", len(selected_products))
-        temp_dir = self._settings.temp_folder / "products"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        # Step 4 — Pozele de produs: din repgalaxy_images/ (daca exista), altfel mulebuy
+        logger.info("[4/7] Selectez pozele de produs")
         product_image_paths: List[str] = []
         accepted_products: List[Dict[str, Any]] = []
 
-        _MIN_DIM = 400  # pixels — skip thumbnails/low-res images
+        # ── Sursa 1: data/repgalaxy_images/ ─────────────────────────────────
+        repgalaxy_dir = Path("data/repgalaxy_images")
+        repgalaxy_all: List[Path] = []
+        if repgalaxy_dir.exists():
+            for subdir in repgalaxy_dir.iterdir():
+                if subdir.is_dir():
+                    for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                        repgalaxy_all.extend(subdir.glob(ext))
 
-        for product in selected_products:
-            # Stop as soon as we have the exact count the user asked for
-            if product_count is not None and len(accepted_products) >= product_count:
-                break
+        if repgalaxy_all:
+            needed = product_count if product_count else self._settings.max_products_per_post
+            # Alege random din FOLDER-URI DIFERITE (varietate)
+            subdirs = [p for p in repgalaxy_dir.iterdir() if p.is_dir()]
+            random.shuffle(subdirs)
+            chosen_paths: List[Path] = []
+            for subdir in subdirs:
+                if len(chosen_paths) >= needed:
+                    break
+                imgs = list(subdir.glob("*.jpg")) + list(subdir.glob("*.jpeg")) + \
+                       list(subdir.glob("*.png")) + list(subdir.glob("*.webp"))
+                if imgs:
+                    chosen_paths.append(random.choice(imgs))
 
-            # ── Use pre-cached local image if available ──────────────────
-            cached_path = product.get("local_image_path", "")
-            if cached_path and Path(cached_path).exists():
-                product_image_paths.append(cached_path)
-                accepted_products.append(product)
-                logger.debug("Using cached image for: {}", product.get("name"))
-                continue
+            # Daca avem prea putine foldere, mai adaugam random din toate
+            if len(chosen_paths) < needed:
+                remaining = [p for p in repgalaxy_all if p not in chosen_paths]
+                random.shuffle(remaining)
+                chosen_paths.extend(remaining[:needed - len(chosen_paths)])
 
-            # ── Fall back to downloading from image_url ──────────────────
-            img_url = product.get("image_url", "")
-            dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
-            if not img_url:
-                logger.warning("Skipping product '{}' — no image_url", product.get("name"))
-                continue
-            try:
-                download_image(img_url, dest)
-                from PIL import Image as _PILImage
-                with _PILImage.open(dest) as _im:
-                    w, h = _im.size
-                if w < _MIN_DIM or h < _MIN_DIM:
-                    logger.warning(
-                        "Skipping product '{}' — image too small ({}x{} < {}px)",
-                        product.get("name"), w, h, _MIN_DIM,
-                    )
-                    dest.unlink(missing_ok=True)
+            for path in chosen_paths[:needed]:
+                product_image_paths.append(str(path.resolve()))
+                # Creeaza un produs sintetic (necesar pentru captionuri)
+                accepted_products.append({
+                    "sheet_row_index": hash(str(path)) % 999999,
+                    "name": path.parent.name.replace("-", " ").title(),
+                    "image_url": f"file://{path}",
+                    "mulebuy_link": "",
+                    "category": category_name,
+                    "price": 0.0,
+                    "tags": category_name,
+                })
+
+            logger.info(
+                "{} poze de produs din repgalaxy_images/ (cerut {})",
+                len(product_image_paths), needed,
+            )
+        else:
+            # ── Sursa 2: fallback — descarca de la mulebuy ───────────────────
+            logger.info("repgalaxy_images/ gol, descarc de la mulebuy ({} candidati)", len(selected_products))
+            temp_dir = self._settings.temp_folder / "products"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            _MIN_DIM = 150
+
+            for product in selected_products:
+                if product_count is not None and len(accepted_products) >= product_count:
+                    break
+                cached_path = product.get("local_image_path", "")
+                if cached_path and Path(cached_path).exists():
+                    product_image_paths.append(cached_path)
+                    accepted_products.append(product)
                     continue
-                product_image_paths.append(str(dest))
-                accepted_products.append(product)
-                logger.debug("Downloaded product image: {}x{} → {}", w, h, dest.name)
-            except Exception:
-                logger.exception("Failed to download product image: {}", img_url[:80])
-                # Don't add placeholder — skip the product to keep carousel quality
+                img_url = product.get("image_url", "")
+                if not img_url:
+                    continue
+                dest = temp_dir / f"product_{product['sheet_row_index']}_{int(time.time() * 1000)}.jpg"
+                try:
+                    download_image(img_url, dest)
+                    from PIL import Image as _PILImage
+                    with _PILImage.open(dest) as _im:
+                        w, h = _im.size
+                    if w < _MIN_DIM or h < _MIN_DIM:
+                        dest.unlink(missing_ok=True)
+                        continue
+                    product_image_paths.append(str(dest))
+                    accepted_products.append(product)
+                except Exception:
+                    logger.exception("Failed to download product image: {}", img_url[:80])
+
+            if product_count is not None and len(accepted_products) < product_count:
+                logger.warning("Cerut {} produse, obtinut {}", product_count, len(accepted_products))
 
         if not accepted_products:
-            raise RuntimeError("All product images were too small or failed to download")
+            raise RuntimeError("Nicio poza de produs disponibila. Ruleaza scrape-repgalaxy.")
 
         selected_products = accepted_products
-        logger.info(
-            "{} products accepted after image quality filter (min {}px)",
-            len(selected_products), _MIN_DIM,
-        )
+        logger.info("{} poze de produs selectate", len(selected_products))
 
         # All images in carousel order: inspiration first, then products
         all_images = [str(pinterest_image_path)] + product_image_paths

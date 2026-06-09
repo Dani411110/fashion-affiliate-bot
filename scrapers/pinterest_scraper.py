@@ -146,9 +146,6 @@ async def _scrape_keyword(
                     dest.unlink(missing_ok=True)
                     continue
 
-                # Resize to vertical
-                make_vertical(dest)
-
                 # Upload to Drive
                 drive_link = ""
                 try:

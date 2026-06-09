@@ -189,6 +189,19 @@ class SqliteDatabase:
             logger.warning("Hash comparison failed — treating as non-duplicate")
         return False
 
+    def get_pinterest_outfit_images(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Returneaza poze Pinterest reale (nu repgalaxy) — cu url http/https real."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM pinterest_images
+                   WHERE used=0
+                     AND url NOT LIKE 'file://repgalaxy%'
+                     AND url LIKE 'http%'
+                   ORDER BY scraped_at ASC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_unused_pinterest_images(self, limit: int = 10) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

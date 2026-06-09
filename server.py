@@ -12,6 +12,30 @@ import asyncio
 import logging
 import os
 
+# ── ffmpeg PATH fix (Windows: winget installs to AppData/Local/Microsoft/WinGet/Links) ──
+def _ensure_ffmpeg_in_path():
+    import subprocess
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        return  # already in PATH
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    # Common Windows locations
+    import pathlib
+    candidates = [
+        pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links",
+        pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages",
+        pathlib.Path("C:/ProgramData/chocolatey/bin"),
+        pathlib.Path("C:/ffmpeg/bin"),
+        pathlib.Path("C:/Program Files/ffmpeg/bin"),
+    ]
+    for c in candidates:
+        if c.exists() and any(c.glob("ffmpeg*")):
+            os.environ["PATH"] = str(c) + os.pathsep + os.environ.get("PATH", "")
+            return
+
+_ensure_ffmpeg_in_path()
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 

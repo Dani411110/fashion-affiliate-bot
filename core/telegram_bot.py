@@ -88,6 +88,22 @@ def _approval_keyboard(post_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+def _platform_keyboard(post_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("▶️ YouTube",  callback_data=f"pub:{post_id}:youtube"),
+            InlineKeyboardButton("🎵 TikTok",   callback_data=f"pub:{post_id}:tiktok"),
+        ],
+        [
+            InlineKeyboardButton("📸 Instagram", callback_data=f"pub:{post_id}:instagram"),
+            InlineKeyboardButton("🤖 Reddit",    callback_data=f"pub:{post_id}:reddit"),
+        ],
+        [
+            InlineKeyboardButton("🌐 Toate platformele", callback_data=f"pub:{post_id}:all"),
+        ],
+    ])
+
+
 async def _run_in_thread(fn, *args):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, fn, *args)
@@ -242,34 +258,116 @@ def _format_preview(pkg) -> str:
     lines += ["", "*Instagram:*", instagram]
     return "\n".join(lines)
 
+_TARGET_W = 1080
+_TARGET_H = 1350  # 4:5 portrait — standard social media
+
+
+def _to_jpeg_bytes(path: Path) -> bytes:
+    """Resize to phone-friendly format (1080x1350, 4:5 portrait) and return JPEG bytes.
+
+    - Scales image so it fits inside 1080x1350, keeping original aspect ratio
+    - Pastes on white canvas of exactly 1080x1350 (no cropping, no distortion)
+    - Upscales small images to 1080px wide so they're sharp on phone
+    """
+    from PIL import Image as _PIL
+    import io
+
+    with _PIL.open(path) as im:
+        im = im.convert("RGB")
+
+        # Scale to fit inside target canvas, maintaining aspect ratio
+        im.thumbnail((_TARGET_W, _TARGET_H), _PIL.LANCZOS)
+
+        # If image is smaller than target, scale UP to at least target width
+        if im.width < _TARGET_W:
+            scale = _TARGET_W / im.width
+            new_h = int(im.height * scale)
+            im = im.resize((_TARGET_W, new_h), _PIL.LANCZOS)
+            # After upscale, if taller than canvas, scale down to fit height
+            if new_h > _TARGET_H:
+                scale2 = _TARGET_H / new_h
+                im = im.resize((int(_TARGET_W * scale2), _TARGET_H), _PIL.LANCZOS)
+
+        # Center on white 1080x1350 canvas
+        canvas = _PIL.new("RGB", (_TARGET_W, _TARGET_H), (255, 255, 255))
+        x = (_TARGET_W - im.width) // 2
+        y = (_TARGET_H - im.height) // 2
+        canvas.paste(im, (x, y))
+
+        buf = io.BytesIO()
+        canvas.save(buf, format="JPEG", quality=92, optimize=True)
+        return buf.getvalue()
+
+
 async def _send_post_preview(bot: Bot, chat_id: int, pkg):
     """Trimite preview complet al postului cu butoane de aprobare."""
     _pending[pkg.post_id] = pkg
 
-    image_paths = [Path(p) for p in pkg.all_images if p and Path(p).exists()]
-    try:
-        if len(image_paths) >= 2:
-            files = []
-            media = []
+    image_paths = []
+    for p in pkg.all_images:
+        if not p:
+            continue
+        resolved = Path(p)
+        if not resolved.is_absolute():
+            resolved = (Path(__file__).parent.parent / p).resolve()
+        if resolved.exists():
+            image_paths.append(resolved)
+        else:
+            logger.warning("Poza lipsa: {}", p)
+    logger.info("Preview: {} imagini valide din {} total", len(image_paths), len(pkg.all_images))
+
+    sent = 0
+    if len(image_paths) >= 2:
+        import io
+        media = []
+        raw_bufs = []
+        for idx, path in enumerate(image_paths[:10]):
             try:
-                for idx, path in enumerate(image_paths[:10], start=1):
-                    f = open(path, "rb")
-                    files.append(f)
-                    media.append(
-                        InputMediaPhoto(
-                            media=f,
-                            caption=f"Preview carusel ({len(image_paths)} poze)" if idx == 1 else None,
-                        )
+                data = _to_jpeg_bytes(path)
+                buf = io.BytesIO(data)
+                buf.name = f"img_{idx:02d}.jpg"
+                raw_bufs.append(buf)
+                media.append(
+                    InputMediaPhoto(
+                        media=buf,
+                        caption=f"Preview carusel ({len(image_paths)} poze)" if idx == 0 else None,
                     )
+                )
+            except Exception as exc:
+                logger.warning("Poza {} nu poate fi convertita: {}", path.name, exc)
+
+        if len(media) >= 2:
+            try:
                 await bot.send_media_group(chat_id=chat_id, media=media)
-            finally:
-                for f in files:
-                    f.close()
-        elif image_paths:
-            with open(image_paths[0], "rb") as f:
-                await bot.send_photo(chat_id=chat_id, photo=f, caption="Preview carusel")
-    except Exception:
-        logger.warning("Nu am putut trimite preview-ul complet de imagini")
+                sent = len(media)
+            except Exception as exc:
+                logger.warning("Media group esuat ({}), trimit individual...", exc)
+                for i, (buf, path) in enumerate(zip(raw_bufs, image_paths)):
+                    try:
+                        buf.seek(0)
+                        await bot.send_photo(chat_id=chat_id, photo=buf)
+                        sent += 1
+                    except Exception as exc2:
+                        logger.warning("Poza {} esuata individual: {}", path.name, exc2)
+        elif media:
+            try:
+                raw_bufs[0].seek(0)
+                await bot.send_photo(chat_id=chat_id, photo=raw_bufs[0], caption="Preview carusel")
+                sent = 1
+            except Exception as exc:
+                logger.warning("Trimitere poza unica esuata: {}", exc)
+    elif image_paths:
+        try:
+            import io
+            data = _to_jpeg_bytes(image_paths[0])
+            buf = io.BytesIO(data)
+            await bot.send_photo(chat_id=chat_id, photo=buf, caption="Preview carusel")
+            sent = 1
+        except Exception as exc:
+            logger.warning("Nu am putut trimite nicio poza: {}", exc)
+
+    if sent == 0:
+        logger.warning("Nicio poza trimisa in preview pentru post {}", pkg.post_id)
 
     text = _format_preview(pkg)
     await bot.send_message(
@@ -279,32 +377,36 @@ async def _send_post_preview(bot: Bot, chat_id: int, pkg):
         reply_markup=_approval_keyboard(pkg.post_id),
     )
 
-async def _publish_package(pkg):
-    """Publica postul pe toate platformele activate."""
+async def _publish_package(pkg, platforms: set = None):
+    """Publica postul pe platformele selectate (sau toate daca platforms=None)."""
     from config.settings import get_settings
     settings = get_settings()
-    results = []
+
+    def _want(name: str) -> bool:
+        if platforms is None or "all" in platforms:
+            return True
+        return name in platforms
 
     def _do_publish():
         publishers = []
-        if settings.enable_reddit:
+        if settings.enable_reddit and _want("reddit"):
             from publishers.reddit_publisher import RedditPublisher
             publishers.append(RedditPublisher(
                 settings.reddit_client_id, settings.reddit_client_secret,
                 settings.reddit_username, settings.reddit_password,
                 settings.reddit_user_agent, settings.reddit_subreddit,
             ))
-        if settings.enable_instagram:
+        if settings.enable_instagram and _want("instagram"):
             from publishers.instagram_publisher import InstagramPublisher
             publishers.append(InstagramPublisher(
                 settings.instagram_access_token, settings.instagram_user_id
             ))
-        if settings.enable_tiktok:
+        if settings.enable_tiktok and _want("tiktok"):
             from publishers.tiktok_publisher import TikTokPublisher
             publishers.append(TikTokPublisher(
                 settings.tiktok_cookies_path, settings.tiktok_access_token
             ))
-        if settings.enable_youtube:
+        if settings.enable_youtube and _want("youtube"):
             from publishers.youtube_publisher import YouTubePublisher
             publishers.append(YouTubePublisher(
                 settings.youtube_client_secrets_json,
@@ -599,7 +701,25 @@ async def _handle_image_count(
 
 async def _handle_approve(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
     query = update.callback_query
-    await query.answer("✅ Aprobat! Se publica...")
+    await query.answer()
+    chat_id = query.message.chat_id
+
+    pkg = _pending.get(post_id)
+    if not pkg:
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    get_db().mark_post_status(post_id, "approved")
+    await query.edit_message_text(
+        "✅ *Aprobat! Pe ce platforme postam?*",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_platform_keyboard(post_id),
+    )
+
+
+async def _handle_platform_select(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int, platform: str):
+    query = update.callback_query
+    await query.answer(f"Se publica pe {platform}...")
     chat_id = query.message.chat_id
 
     pkg = _pending.pop(post_id, None)
@@ -607,27 +727,25 @@ async def _handle_approve(update: Update, context: ContextTypes.DEFAULT_TYPE, po
         await query.edit_message_reply_markup(reply_markup=None)
         return
 
-    get_db().mark_post_status(post_id, "approved")
-    await query.edit_message_text("✅ *Aprobat! Se publica...*", parse_mode=ParseMode.MARKDOWN)
+    label = "toate platformele" if platform == "all" else platform.upper()
+    await query.edit_message_text(f"⏳ *Se publica pe {label}...*", parse_mode=ParseMode.MARKDOWN)
 
     try:
-        results = await _publish_package(pkg)
+        results = await _publish_package(pkg, platforms={platform})
         if not results:
-            lines = [
-                "*Post aprobat si pastrat in coada.*",
-                "Nicio platforma nu este activa acum. Activeaza o platforma in .env/Railway, apoi publica.",
-            ]
+            lines = ["*Post aprobat si pastrat in coada.*",
+                     "Platforma selectata nu este activa in .env."]
         elif any(result.success for _, result in results):
-            lines = ["*Publicat pe platformele disponibile!*\n"]
-            for platform, result in results:
+            lines = [f"*Publicat pe {label}!*\n"]
+            for plat, result in results:
                 if result.success:
-                    lines.append(f"{platform.upper()}: {_escape_md(str(result.url or result.platform_post_id or ''))}")
+                    lines.append(f"{plat.upper()}: {_escape_md(str(result.url or result.platform_post_id or ''))}")
                 else:
-                    lines.append(f"{platform.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
+                    lines.append(f"{plat.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
         else:
-            lines = ["*Post aprobat, dar publicarea a esuat pe toate platformele.*\n"]
-            for platform, result in results:
-                lines.append(f"{platform.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
+            lines = [f"*Publicarea pe {label} a esuat.*\n"]
+            for plat, result in results:
+                lines.append(f"{plat.upper()} failed: {_escape_md(str(result.error or '')[:80])}")
         await context.bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as exc:
         logger.exception("Publish failed")
@@ -717,6 +835,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data.startswith("approve:"):
         await _handle_approve(update, context, int(data.split(":")[1]))
+    elif data.startswith("pub:"):
+        _, post_id, platform = data.split(":", 2)
+        await _handle_platform_select(update, context, int(post_id), platform)
     elif data.startswith("reject:"):
         await _handle_reject(update, context, int(data.split(":")[1]))
     elif data.startswith("regen:"):

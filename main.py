@@ -95,13 +95,18 @@ def scrape_products(categories, per_category):
 
 
 @cli.command("scrape-repgalaxy")
-@click.option("--max", "max_products", default=200, show_default=True, help="Max products to import.")
-def scrape_repgalaxy_cmd(max_products: int):
-    """Scrape products from repgalaxy.com and save to local cache."""
-    from scrapers.repgalaxy_scraper import run_scrape
-    console.print(f"[cyan]Scraping RepGalaxy (max {max_products} produse)…[/cyan]")
-    count = run_scrape(max_products=max_products)
-    console.print(f"[green]Done. {count} produse noi adaugate din RepGalaxy.[/green]")
+@click.option("--limit", default=None, type=int, show_default=True, help="Max produse de procesat (implicit: toate).")
+@click.option("--no-db", is_flag=True, default=False, help="Nu adauga in SQLite, doar descarca fisierele.")
+def scrape_repgalaxy_cmd(limit, no_db):
+    """Scrape imaginile de produs de pe repgalaxy.com -> kakobuy si le salveaza in data/repgalaxy_images/."""
+    from scrapers.repgalaxy_image_scraper import run
+    console.print(f"[cyan]Scraping RepGalaxy imagini (limit={limit or 'toate'})…[/cyan]")
+    stats = run(limit=limit, add_to_db=not no_db)
+    console.print(
+        f"[green]Done. {stats['products_processed']} produse, "
+        f"{stats['images_downloaded']} poze descarcate, "
+        f"{stats['errors']} erori.[/green]"
+    )
 
 
 @cli.command("scrape-products-all")

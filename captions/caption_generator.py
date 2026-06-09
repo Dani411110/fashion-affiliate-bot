@@ -14,55 +14,42 @@ logger = get_logger(__name__)
 
 PLATFORMS = ("reddit", "tiktok", "instagram", "youtube")
 
-_GENERATION_PROMPT = """Ești un creator de conținut fashion specializat în marketing afiliat.
-Vei primi o imagine de inspirație vestimentară și o listă de produse disponibile la cumpărare.
+_GENERATION_PROMPT = """You are a fashion content creator. Write content for a social media post.
 
-Scrie conținut atractiv pentru postare. Răspunde DOAR cu JSON valid în această structură exactă:
+Respond ONLY with valid JSON:
 {{
-  "title": "Titlu captivant (max 10 cuvinte, fără hashtag-uri)",
-  "caption": "Text caption captivant (2-4 propoziții). Menționează vibe-ul/estetica. NU include link-uri de produse aici.",
-  "hashtags": ["hashtag1", "hashtag2", ...] // 15-25 hashtag-uri relevante, fără simbolul #
+  "caption": "1 short sentence in English. Max 10 words.",
+  "hashtags": ["hashtag1", "hashtag2", ...] // 10-15 hashtags, no # symbol
 }}
 
 Context:
-- Categorie: {category}
-- Produse în această postare: {product_summary}
-- Platformă: {platform}
+- Category: {category}
+- Products: {product_summary}
+- Platform: {platform}
 
-Reguli de stil (SCRIE TOTUL ÎN ROMÂNĂ):
-- Sună ca un creator real de fashion, nu ca o pagină de vânzări.
-- CTA subtil și util: "linkuri mai jos", "lista de produse mai jos" sau similar.
-- Nu promite exagerat calitate, autenticitate, viteză de livrare sau identitate de brand.
-- Menționează mai întâi estetica/vibe-ul, apoi conectează produsele natural.
-- Evită fraze generice ca "TREBUIE să ai asta" dacă nu se potrivește platformei.
+CAPTION — 1 sentence only, English, max 10 words. Example: "links below 👇" or "shop the fit 🛍"
 
-Reguli per platformă:
-- Reddit: titlul să fie informativ, nu clickbait. Caption practic și orientat spre linkuri.
-- TikTok: hook puternic, propoziții scurte, ton creator, 1 CTA subtil.
-- Instagram: caption șlefuit, limbaj outfit/vibe, menționare clară a produselor.
-- YouTube: titlu și descriere SEO-friendly pentru Shorts.
-
-Hashtag-urile să reflecte estetica, articolele și publicul țintă. Hashtag-urile pot fi în engleză pentru reach mai mare."""
+HASHTAGS — English, relevant to category and items."""
 
 _FALLBACK_CAPTIONS = {
     "reddit": {
-        "title": "Cele mai bune piese fashion la prețuri mici",
-        "caption": "Priviți aceste piese incredibile! Calitate bună la prețuri accesibile. Linkuri mai jos.",
+        "title": "",  # overridden by category name
+        "caption": "links below 👇",
         "hashtags": ["fashion", "streetwear", "outfitinspo", "affordablefashion", "ootd"],
     },
     "tiktok": {
-        "title": "Piese fashion la prețuri imbatabile ✨",
-        "caption": "Găsești piese fashion care arată scumpe la prețuri mici! Linkuri în bio.",
+        "title": "",
+        "caption": "shop the fit 🛍",
         "hashtags": ["fashion", "outfitinspo", "affordablefashion", "fyp", "fashiontiktok"],
     },
     "instagram": {
-        "title": "Inspirație outfit",
-        "caption": "Îți ridici garderoba fără să golești bugetul. Verifică linkurile de produse!",
+        "title": "",
+        "caption": "links below 👇",
         "hashtags": ["fashion", "ootd", "outfitinspo", "style", "affordablefashion"],
     },
     "youtube": {
-        "title": "Cele mai bune piese fashion ieftine | Haul",
-        "caption": "Descoperă piese fashion la prețuri imbatabile. Toate linkurile mai jos!",
+        "title": "",
+        "caption": "shop all links below 🛍",
         "hashtags": ["fashion", "haul", "affordablefashion", "outfitideas", "ootd"],
     },
 }
@@ -80,10 +67,21 @@ class CaptionGenerator:
     def _build_product_summary(self, products: List[Dict[str, Any]]) -> str:
         lines = []
         for p in products:
-            lines.append(
-                f"- {p.get('name', 'Unknown')} (${p.get('price', 0):.2f}, {p.get('category', '')})"
-            )
+            price = float(p.get('price', 0) or 0)
+            price_str = f"${price:.2f}, " if price > 0 else ""
+            lines.append(f"- {p.get('name', 'Unknown')} ({price_str}{p.get('category', '')})")
         return "\n".join(lines)
+
+    @staticmethod
+    def _title_from_category(category_name: str) -> str:
+        """Convert category name to a short title matching the Telegram button label."""
+        mapping = {
+            "complete outfit with accessories": "complete outfit",
+            "random finds": "random finds",
+            "most popular": "most popular",
+            "cheapest finds": "cheap finds",
+        }
+        return mapping.get(category_name.lower(), category_name.lower())
 
     @retry_on_api_error
     def _call_openai(
@@ -93,34 +91,17 @@ class CaptionGenerator:
         category_name: str,
         platform: str,
     ) -> Dict[str, Any]:
-        b64 = self._encode_image(image_path)
-        ext = image_path.suffix.lower().lstrip(".")
-        mime = f"image/{ext}" if ext in ("jpg", "jpeg", "png", "webp") else "image/jpeg"
-
         prompt = _GENERATION_PROMPT.format(
             category=category_name,
             product_summary=self._build_product_summary(products),
             platform=platform,
         )
 
+        # Text-only call — caption and hashtags only, title comes from category
         response = self._client.chat.completions.create(
             model=self._model,
-            max_tokens=600,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime};base64,{b64}",
-                                "detail": "low",
-                            },
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
         )
         raw = response.choices[0].message.content.strip()
         if raw.startswith("```"):
@@ -137,27 +118,24 @@ class CaptionGenerator:
         platform: str,
     ) -> Dict[str, Any]:
         """Generate a caption dict {title, caption, hashtags} for one platform."""
+        title = self._title_from_category(category_name)
         try:
             data = self._call_openai(
                 pinterest_image_path, products, category_name, platform
             )
-            if not all(k in data for k in ("title", "caption", "hashtags")):
+            if not all(k in data for k in ("caption", "hashtags")):
                 raise ValueError("Missing required keys in OpenAI response")
-            logger.info(
-                "Caption generated for {} / {}: '{}'",
-                category_name,
-                platform,
-                data["title"][:50],
-            )
+            data["title"] = title
+            logger.info("Caption generated for {} / {}: '{}'", category_name, platform, title)
             return data
         except (openai.APIError, json.JSONDecodeError, ValueError, Exception) as exc:
             logger.exception(
                 "Caption generation failed for {} / {} — using fallback: {}",
-                category_name,
-                platform,
-                exc,
+                category_name, platform, exc,
             )
-            return dict(_FALLBACK_CAPTIONS.get(platform, _FALLBACK_CAPTIONS["reddit"]))
+            fallback = dict(_FALLBACK_CAPTIONS.get(platform, _FALLBACK_CAPTIONS["reddit"]))
+            fallback["title"] = title
+            return fallback
 
     def generate_all_platforms(
         self,
@@ -188,8 +166,10 @@ class CaptionGenerator:
         if platform == "reddit":
             lines = [f"**{title}**\n", caption, "\n\n---\n\n**Shop the look:**\n"]
             for p in products:
+                price = float(p.get('price', 0) or 0)
+                price_str = f" — ${price:.2f}" if price > 0 else ""
                 lines.append(
-                    f"- [{p.get('name', 'Product')} — ${p.get('price', 0):.2f}]({p.get('mulebuy_link', '')})"
+                    f"- [{p.get('name', 'Product')}{price_str}]({p.get('mulebuy_link', '')})"
                 )
             lines.append(f"\n\n{tag_str}")
             return "\n".join(lines)
@@ -201,17 +181,22 @@ class CaptionGenerator:
             return f"{body}\n\n{tag_str}"
 
         elif platform == "instagram":
-            links_block = "\n".join(
-                f"🛍 {p.get('name', 'Product')} — ${p.get('price', 0):.2f}"
-                for p in products
-            )
-            return f"{caption}\n\n{links_block}\n\n{tag_str}"
+            lines_ig = []
+            for p in products:
+                price = float(p.get('price', 0) or 0)
+                price_str = f" — ${price:.2f}" if price > 0 else ""
+                lines_ig.append(f"🛍 {p.get('name', 'Product')}{price_str}")
+            return f"{caption}\n\n" + "\n".join(lines_ig) + f"\n\n{tag_str}"
 
         elif platform == "youtube":
-            links_block = "\n".join(
-                f"▶ {p.get('name', 'Product')} — ${p.get('price', 0):.2f}: {p.get('mulebuy_link', '')}"
-                for p in products
-            )
+            lines_yt = []
+            for p in products:
+                price = float(p.get('price', 0) or 0)
+                price_str = f" — ${price:.2f}" if price > 0 else ""
+                link = p.get('mulebuy_link', '')
+                suffix = f": {link}" if link else ""
+                lines_yt.append(f"▶ {p.get('name', 'Product')}{price_str}{suffix}")
+            links_block = "\n".join(lines_yt)
             yt_tags = "  ".join(f"#{h.lstrip('#')}" for h in hashtags)
             return (
                 f"{title}\n\n"
