@@ -52,7 +52,7 @@ def _prescale_images(image_paths: List[Path], tmp_dir: Path) -> List[Path]:
                 im = im.convert("RGB")
                 im.thumbnail((_VIDEO_W, _VIDEO_H), _PILImage.LANCZOS)
                 # Paste onto black 1080x1920 canvas (letterbox / pillarbox)
-                canvas = _PILImage.new("RGB", (_VIDEO_W, _VIDEO_H), (0, 0, 0))
+                canvas = _PILImage.new("RGB", (_VIDEO_W, _VIDEO_H), (255, 255, 255))
                 x = (_VIDEO_W - im.width) // 2
                 y = (_VIDEO_H - im.height) // 2
                 canvas.paste(im, (x, y))
