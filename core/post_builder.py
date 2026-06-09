@@ -153,7 +153,6 @@ class PostBuilder:
                 continue
             try:
                 download_image(img_url, dest)
-                make_vertical(dest)
                 product_image_paths.append(str(dest))
                 logger.debug("Downloaded product image: {}", dest.name)
             except Exception:

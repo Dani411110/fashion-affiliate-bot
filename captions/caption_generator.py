@@ -14,56 +14,56 @@ logger = get_logger(__name__)
 
 PLATFORMS = ("reddit", "tiktok", "instagram", "youtube")
 
-_GENERATION_PROMPT = """You are a fashion content creator specialising in affiliate marketing.
-You will receive an outfit inspiration image and a list of shoppable products.
+_GENERATION_PROMPT = """Ești un creator de conținut fashion specializat în marketing afiliat.
+Vei primi o imagine de inspirație vestimentară și o listă de produse disponibile la cumpărare.
 
-Write engaging content for the post. Respond ONLY with valid JSON in this exact structure:
+Scrie conținut atractiv pentru postare. Răspunde DOAR cu JSON valid în această structură exactă:
 {{
-  "title": "Catchy post title (max 10 words, no hashtags)",
-  "caption": "Engaging caption body (2-4 sentences). Mention the vibe/aesthetic. Do NOT include product links here.",
-  "hashtags": ["hashtag1", "hashtag2", ...] // 15-25 relevant hashtags, no # symbol
+  "title": "Titlu captivant (max 10 cuvinte, fără hashtag-uri)",
+  "caption": "Text caption captivant (2-4 propoziții). Menționează vibe-ul/estetica. NU include link-uri de produse aici.",
+  "hashtags": ["hashtag1", "hashtag2", ...] // 15-25 hashtag-uri relevante, fără simbolul #
 }}
 
 Context:
-- Category: {category}
-- Products in this post: {product_summary}
-- Platform: {platform}
+- Categorie: {category}
+- Produse în această postare: {product_summary}
+- Platformă: {platform}
 
-Style rules:
-- Sound like a real fashion creator, not a sales page.
-- Keep the CTA soft and useful: "links/products below", "shop list below", or similar.
-- Do not overpromise quality, authenticity, shipping speed, or brand identity.
-- Mention the aesthetic/vibe first, then connect the products naturally.
-- Avoid generic lines like "you NEED this" unless the platform is TikTok and it fits.
+Reguli de stil (SCRIE TOTUL ÎN ROMÂNĂ):
+- Sună ca un creator real de fashion, nu ca o pagină de vânzări.
+- CTA subtil și util: "linkuri mai jos", "lista de produse mai jos" sau similar.
+- Nu promite exagerat calitate, autenticitate, viteză de livrare sau identitate de brand.
+- Menționează mai întâi estetica/vibe-ul, apoi conectează produsele natural.
+- Evită fraze generice ca "TREBUIE să ai asta" dacă nu se potrivește platformei.
 
-Platform rules:
-- Reddit: title should be informative and not clickbait. Caption can be practical and link-focused.
-- TikTok: punchy hook, short lines, creator tone, 1 subtle CTA.
-- Instagram: polished caption, outfit/vibe language, scannable product mention.
-- YouTube: SEO-friendly title and description for Shorts.
+Reguli per platformă:
+- Reddit: titlul să fie informativ, nu clickbait. Caption practic și orientat spre linkuri.
+- TikTok: hook puternic, propoziții scurte, ton creator, 1 CTA subtil.
+- Instagram: caption șlefuit, limbaj outfit/vibe, menționare clară a produselor.
+- YouTube: titlu și descriere SEO-friendly pentru Shorts.
 
-Hashtags should reflect the aesthetic, items, and target audience."""
+Hashtag-urile să reflecte estetica, articolele și publicul țintă. Hashtag-urile pot fi în engleză pentru reach mai mare."""
 
 _FALLBACK_CAPTIONS = {
     "reddit": {
-        "title": "Amazing Fashion Finds from Mulebuy",
-        "caption": "Check out these incredible pieces! Great quality and affordable prices.",
-        "hashtags": ["fashion", "streetwear", "outfitinspo", "mulebuy", "affordablefashion"],
+        "title": "Cele mai bune piese fashion la prețuri mici",
+        "caption": "Priviți aceste piese incredibile! Calitate bună la prețuri accesibile. Linkuri mai jos.",
+        "hashtags": ["fashion", "streetwear", "outfitinspo", "affordablefashion", "ootd"],
     },
     "tiktok": {
-        "title": "You NEED these fashion finds ✨",
-        "caption": "Affordable fashion finds that look expensive! Links in bio.",
+        "title": "Piese fashion la prețuri imbatabile ✨",
+        "caption": "Găsești piese fashion care arată scumpe la prețuri mici! Linkuri în bio.",
         "hashtags": ["fashion", "outfitinspo", "affordablefashion", "fyp", "fashiontiktok"],
     },
     "instagram": {
-        "title": "Outfit inspiration",
-        "caption": "Elevate your wardrobe without breaking the bank. Shop the links!",
+        "title": "Inspirație outfit",
+        "caption": "Îți ridici garderoba fără să golești bugetul. Verifică linkurile de produse!",
         "hashtags": ["fashion", "ootd", "outfitinspo", "style", "affordablefashion"],
     },
     "youtube": {
-        "title": "Best Affordable Fashion Finds | Mulebuy Haul",
-        "caption": "Discover amazing fashion pieces at unbeatable prices. All links below!",
-        "hashtags": ["fashion", "haul", "mulebuy", "affordablefashion", "outfitideas"],
+        "title": "Cele mai bune piese fashion ieftine | Haul",
+        "caption": "Descoperă piese fashion la prețuri imbatabile. Toate linkurile mai jos!",
+        "hashtags": ["fashion", "haul", "affordablefashion", "outfitideas", "ootd"],
     },
 }
 

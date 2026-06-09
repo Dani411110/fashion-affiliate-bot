@@ -94,6 +94,16 @@ def scrape_products(categories, per_category):
     console.print(f"[green]Done. Scraped {len(products)} products.[/green]")
 
 
+@cli.command("scrape-repgalaxy")
+@click.option("--max", "max_products", default=200, show_default=True, help="Max products to import.")
+def scrape_repgalaxy_cmd(max_products: int):
+    """Scrape products from repgalaxy.com and save to local cache."""
+    from scrapers.repgalaxy_scraper import run_scrape
+    console.print(f"[cyan]Scraping RepGalaxy (max {max_products} produse)…[/cyan]")
+    count = run_scrape(max_products=max_products)
+    console.print(f"[green]Done. {count} produse noi adaugate din RepGalaxy.[/green]")
+
+
 @cli.command("scrape-products-all")
 @click.option(
     "--categories",
