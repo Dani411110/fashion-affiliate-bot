@@ -69,6 +69,8 @@ _PUBLIC_PATHS = {
     "/tiktok/callback/",
     "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
     "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
+    "/youtube/callback",
+    "/youtube/callback/",
 }
 
 _TIKTOK_SITE_VERIFICATION = "tiktok-developers-site-verification=jfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq"
@@ -343,6 +345,56 @@ def _tiktok_callback_html(query: dict[str, list[str]]) -> str:
     return _legal_page_html("TikTok Callback", body)
 
 
+def _youtube_callback_html(query: dict[str, list[str]], settings: Settings) -> str:
+    code = (query.get("code") or [""])[0]
+    error = html.escape((query.get("error") or [""])[0])
+
+    if error:
+        body = f"<p>YouTube authorization error: <strong>{error}</strong></p><p>Go back and try again.</p>"
+        return _legal_page_html("YouTube OAuth Callback", body)
+
+    if not code:
+        body = "<p>YouTube OAuth callback endpoint is active. No code received yet.</p>"
+        return _legal_page_html("YouTube OAuth Callback", body)
+
+    try:
+        from google_auth_oauthlib.flow import Flow  # type: ignore
+
+        secrets_src = settings.youtube_client_secrets_json or ""
+        secrets_path = secrets_src
+        if secrets_src and not Path(secrets_src).exists():
+            tmp = Path("data/youtube_client_secrets.json")
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(secrets_src, encoding="utf-8")
+            secrets_path = str(tmp)
+
+        railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+        if railway_domain:
+            redirect_uri = f"https://{railway_domain}/youtube/callback"
+        else:
+            redirect_uri = f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+
+        flow = Flow.from_client_secrets_file(
+            secrets_path,
+            scopes=["https://www.googleapis.com/auth/youtube.upload"],
+            redirect_uri=redirect_uri,
+        )
+        flow.fetch_token(code=code)
+        token_path = Path("data/youtube_token.json")
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(flow.credentials.to_json(), encoding="utf-8")
+        logger.info("YouTube OAuth token saved via Railway callback")
+        body = (
+            "<p><strong>✅ YouTube connected successfully!</strong></p>"
+            "<p>Token saved. Now set <code>ENABLE_YOUTUBE=true</code> in Railway Variables and redeploy.</p>"
+        )
+    except Exception as exc:
+        logger.exception("YouTube callback token exchange failed")
+        body = f"<p>❌ Token exchange failed: <code>{html.escape(str(exc))}</code></p><p>Try generating a new auth URL.</p>"
+
+    return _legal_page_html("YouTube OAuth Callback", body)
+
+
 def _tiktok_demo_html() -> str:
     return """<!doctype html>
 <html lang="en">
@@ -425,6 +477,8 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _html_response(self, _tiktok_demo_html())
             elif parsed.path in {"/tiktok/callback", "/tiktok/callback/"}:
                 _html_response(self, _tiktok_callback_html(query))
+            elif parsed.path in {"/youtube/callback", "/youtube/callback/"}:
+                _html_response(self, _youtube_callback_html(query, settings))
             elif parsed.path in {
                 "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
                 "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",

@@ -393,9 +393,16 @@ def tiktok_exchange_code(code: str):
         console.print(f"[red]Token exchange failed:[/red] {payload}")
 
 
+def _youtube_redirect_uri() -> str:
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+    if railway_domain:
+        return f"https://{railway_domain}/youtube/callback"
+    return f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+
+
 @cli.command("youtube-auth-url")
 def youtube_auth_url():
-    """Print a YouTube OAuth URL without starting a local callback server."""
+    """Print a YouTube OAuth URL. On Railway, redirect goes to /youtube/callback."""
     from config.settings import get_settings
     from google_auth_oauthlib.flow import Flow
 
@@ -411,7 +418,7 @@ def youtube_auth_url():
         tmp.write_text(s.youtube_client_secrets_json, encoding="utf-8")
         secrets_path = str(tmp)
 
-    redirect_uri = f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+    redirect_uri = _youtube_redirect_uri()
     flow = Flow.from_client_secrets_file(
         secrets_path,
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
@@ -422,7 +429,8 @@ def youtube_auth_url():
         include_granted_scopes="true",
         prompt="consent",
     )
-    console.print("[green]Open this URL, approve YouTube upload, then copy the 'code' from the localhost URL:[/green]")
+    console.print(f"[yellow]Redirect URI:[/yellow] {redirect_uri}")
+    console.print("[green]Open this URL and approve YouTube access:[/green]")
     console.print(url)
 
 
@@ -445,7 +453,7 @@ def youtube_exchange_code(code: str):
         tmp.write_text(s.youtube_client_secrets_json, encoding="utf-8")
         secrets_path = str(tmp)
 
-    redirect_uri = f"http://localhost:{os.getenv('YOUTUBE_OAUTH_PORT', '8081')}/"
+    redirect_uri = _youtube_redirect_uri()
     flow = Flow.from_client_secrets_file(
         secrets_path,
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
