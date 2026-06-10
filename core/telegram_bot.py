@@ -572,6 +572,16 @@ async def cmd_resetpinterest(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def cmd_resetmulebuy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    count = get_db().reset_all_mulebuy_products()
+    await update.message.reply_text(
+        f"✅ Istoricul de produse Mulebuy resetat ({count} inregistrari sterse). Toate produsele sunt disponibile din nou."
+    )
+
+
 async def cmd_cacheimages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
@@ -887,6 +897,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "syncsheet": cmd_syncsheet,
         "cacheimages": cmd_cacheimages,
         "resetpinterest": cmd_resetpinterest,
+        "resetmulebuy": cmd_resetmulebuy,
     }
     handler = handlers.get(command)
     if handler:
