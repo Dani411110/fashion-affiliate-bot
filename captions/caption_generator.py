@@ -151,6 +151,15 @@ class CaptionGenerator:
             )
         return result
 
+    _FOOTER = (
+        "\n\n"
+        "🔥 Cele mai clean outfit-uri și sneakers 👀\n"
+        "DM me pentru comandă 📩\n\n"
+        "🔥 Clean outfits & insane sneaker deals 👀\n"
+        "DM me to order 📩\n\n"
+        "#Mulebuy #fashion #streetwear #sneakers #fyp"
+    )
+
     def format_for_platform(
         self,
         caption_data: Dict[str, Any],
@@ -172,13 +181,13 @@ class CaptionGenerator:
                     f"- [{p.get('name', 'Product')}{price_str}]({p.get('mulebuy_link', '')})"
                 )
             lines.append(f"\n\n{tag_str}")
-            return "\n".join(lines)
+            return "\n".join(lines) + self._FOOTER
 
         elif platform == "tiktok":
             body = f"{title}\n\n{caption}"
             if len(body) > 150:
                 body = body[:147] + "..."
-            return f"{body}\n\n{tag_str}"
+            return f"{body}\n\n{tag_str}" + self._FOOTER
 
         elif platform == "instagram":
             lines_ig = []
@@ -186,7 +195,7 @@ class CaptionGenerator:
                 price = float(p.get('price', 0) or 0)
                 price_str = f" — ${price:.2f}" if price > 0 else ""
                 lines_ig.append(f"🛍 {p.get('name', 'Product')}{price_str}")
-            return f"{caption}\n\n" + "\n".join(lines_ig) + f"\n\n{tag_str}"
+            return f"{caption}\n\n" + "\n".join(lines_ig) + f"\n\n{tag_str}" + self._FOOTER
 
         elif platform == "youtube":
             lines_yt = []
@@ -203,9 +212,9 @@ class CaptionGenerator:
                 f"{caption}\n\n"
                 f"🛍 Shop All Products:\n{links_block}\n\n"
                 f"{yt_tags}"
-            )
+            ) + self._FOOTER
 
-        return f"{title}\n\n{caption}\n\n{tag_str}"
+        return f"{title}\n\n{caption}\n\n{tag_str}" + self._FOOTER
 
 
 _generator_instance: Optional[CaptionGenerator] = None
