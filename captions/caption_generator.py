@@ -152,9 +152,9 @@ class CaptionGenerator:
         return result
 
     _FIXED_CAPTION = (
-        "🔥 Cele mai clean outfit-uri și sneakers 👀\n"
+        "🔥 Cele mai clean outfit-uri și sneakers 👀\n\n"
         "DM me pentru comandă 📩\n\n"
-        "🔥 Clean outfits & insane sneaker deals 👀\n"
+        "🔥 Clean outfits & insane sneaker deals 👀\n\n"
         "DM me to order 📩\n\n"
         "#Mulebuy #fashion #streetwear #sneakers #fyp"
     )
