@@ -469,7 +469,9 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             token_query = f"?token={html.escape(query.get('token', [''])[0])}" if query.get("token") else ""
-            if parsed.path not in _PUBLIC_PATHS and not _authorized(query):
+            if (not parsed.path.startswith("/images/")
+                    and parsed.path not in _PUBLIC_PATHS
+                    and not _authorized(query)):
                 _json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
 

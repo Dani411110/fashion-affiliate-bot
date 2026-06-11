@@ -243,16 +243,18 @@ class PostBuilder:
         logger.info("[6/7] Publishing {} images via Railway static server", len(all_images))
         public_image_urls: List[str] = []
 
-        railway_domain = (
-            os.getenv("RAILWAY_PUBLIC_DOMAIN")
-            or os.getenv("RAILWAY_STATIC_URL", "").replace("https://", "")
-        )
+        _raw_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().rstrip("/")
+        if _raw_domain.startswith("http"):
+            railway_base_url = _raw_domain
+        elif _raw_domain:
+            railway_base_url = f"https://{_raw_domain}"
+        else:
+            railway_base_url = ""
         session_id = uuid.uuid4().hex[:10]
 
-        if railway_domain:
+        if railway_base_url:
             public_dir = Path("/data/public_images")
             public_dir.mkdir(parents=True, exist_ok=True)
-            base_url = f"https://{railway_domain}"
             for i, img_path in enumerate(all_images):
                 p = Path(img_path)
                 if not p.exists():
@@ -262,7 +264,7 @@ class PostBuilder:
                 dest = public_dir / dest_name
                 try:
                     shutil.copy2(p, dest)
-                    public_image_urls.append(f"{base_url}/images/{dest_name}")
+                    public_image_urls.append(f"{railway_base_url}/images/{dest_name}")
                     logger.debug("Staged image {} → /images/{}", i, dest_name)
                 except Exception:
                     logger.exception("Failed to stage image {} for public serving", i)
