@@ -241,6 +241,7 @@ class PostBuilder:
 
         # Step 6 — Serve images via Railway public URL (/images/ endpoint)
         logger.info("[6/7] Publishing {} images via Railway static server", len(all_images))
+        drive_folder_id = self._settings.drive_folder_queue_id or ""
         public_image_urls: List[str] = []
 
         _raw_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip().rstrip("/")
