@@ -8,7 +8,10 @@ Central post builder — orchestrates all modules into a complete PostPackage.
 """
 
 import json
+import os
+import shutil
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -236,40 +239,36 @@ class PostBuilder:
                 cap_data, selected_products, platform
             )
 
-        # Step 6 — Upload images to Drive /Queue/ and get public URLs
-        logger.info("[6/7] Uploading {} images to Google Drive /Queue/", len(all_images))
-        drive_folder_id = self._settings.drive_folder_queue_id or ""
+        # Step 6 — Serve images via Railway public URL (/images/ endpoint)
+        logger.info("[6/7] Publishing {} images via Railway static server", len(all_images))
         public_image_urls: List[str] = []
 
-        if drive_folder_id:
+        railway_domain = (
+            os.getenv("RAILWAY_PUBLIC_DOMAIN")
+            or os.getenv("RAILWAY_STATIC_URL", "").replace("https://", "")
+        )
+        session_id = uuid.uuid4().hex[:10]
+
+        if railway_domain:
+            public_dir = Path("/data/public_images")
+            public_dir.mkdir(parents=True, exist_ok=True)
+            base_url = f"https://{railway_domain}"
             for i, img_path in enumerate(all_images):
                 p = Path(img_path)
                 if not p.exists():
+                    logger.warning("Image {} not found: {}", i, img_path)
                     continue
+                dest_name = f"ig_{session_id}_{i:02d}{p.suffix}"
+                dest = public_dir / dest_name
                 try:
-                    drive = get_drive_client()
-                    link = drive.upload_file(p, drive_folder_id, f"post_img_{i:02d}{p.suffix}")
-                    # Convert sharing link to direct download URL for API use
-                    file_id = drive.get_file_id_from_link(link)
-                    if file_id:
-                        # Use thumbnail URL — bypasses Drive's virus-scan HTML redirect
-                        # that breaks Instagram/TikTok API image downloads
-                        direct_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w2000-h2000"
-                        public_image_urls.append(direct_url)
-                    else:
-                        public_image_urls.append(link)
+                    shutil.copy2(p, dest)
+                    public_image_urls.append(f"{base_url}/images/{dest_name}")
+                    logger.debug("Staged image {} → /images/{}", i, dest_name)
                 except Exception:
-                    logger.exception("Drive upload failed for image {}", i)
-                    # Fall back to original source URLs where available
-                    if i == 0:
-                        public_image_urls.append(pinterest_record.get("url", ""))
-                    elif (i - 1) < len(selected_products):
-                        public_image_urls.append(
-                            selected_products[i - 1].get("image_url", "")
-                        )
+                    logger.exception("Failed to stage image {} for public serving", i)
         else:
-            # No Drive folder — use source URLs directly
-            logger.warning("DRIVE_FOLDER_QUEUE_ID not set — using source image URLs")
+            # Fallback to source URLs when Railway domain not available
+            logger.warning("RAILWAY_PUBLIC_DOMAIN not set — using source image URLs")
             public_image_urls.append(pinterest_record.get("url", ""))
             for p in selected_products:
                 public_image_urls.append(p.get("image_url", ""))

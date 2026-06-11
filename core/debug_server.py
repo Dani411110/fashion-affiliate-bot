@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import mimetypes
 import os
 import re
 import threading
@@ -498,6 +499,22 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
             }:
                 _text_response(self, _TIKTOK_SITE_VERIFICATION)
+            elif parsed.path.startswith("/images/"):
+                filename = parsed.path[len("/images/"):]
+                if ".." in filename or filename.startswith("/"):
+                    _json_response(self, {"error": "forbidden"}, HTTPStatus.FORBIDDEN)
+                    return
+                file_path = Path("/data/public_images") / filename
+                if not file_path.exists() or not file_path.is_file():
+                    _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
+                    return
+                mime_type, _ = mimetypes.guess_type(str(file_path))
+                content = file_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mime_type or "application/octet-stream")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
             else:
                 _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
 
