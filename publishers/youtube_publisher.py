@@ -312,25 +312,38 @@ class YouTubePublisher(BasePublisher):
                 image_paths, tmp_video, self._seconds_per_image
             )
 
-            captions = post_package.captions.get("youtube", {})
-            title = captions.get("title", "Fashion Finds")
-            description = post_package.formatted_captions.get("youtube", "")
-            hashtags = captions.get("hashtags", [])
-            tags = [h.lstrip("#") for h in hashtags][:500]
+            hashtags = ["Mulebuy", "fashion", "streetwear", "sneakers", "fyp"]
+            tags = hashtags[:500]
+            hashtag_str = " ".join(f"#{h}" for h in hashtags)
 
-            video_id = self._upload_video(video_path, title, description, tags)
-            url = f"https://www.youtube.com/shorts/{video_id}"
+            posts = [
+                {
+                    "title": "🔥 Cele mai clean outfit-uri și sneakers 👀",
+                    "description": f"DM me pentru comandă 📩\n\n{hashtag_str}",
+                },
+                {
+                    "title": "🔥 Clean outfits & insane sneaker deals 👀",
+                    "description": f"DM me to order 📩\n\n{hashtag_str}",
+                },
+            ]
 
             # Pinned comment with all product links
             product_links = "\n".join(
                 f"🛍 {p.get('name', 'Product')} — ${p.get('price', 0):.2f}: {p.get('mulebuy_link', '')}"
                 for p in (post_package.products or [])
             )
-            if product_links:
-                try:
-                    self._pin_comment(video_id, product_links)
-                except Exception:
-                    logger.warning("Could not pin product links comment on YouTube {}", video_id)
+
+            video_ids = []
+            for p in posts:
+                vid = self._upload_video(video_path, p["title"], p["description"], tags)
+                video_ids.append(vid)
+                if product_links:
+                    try:
+                        self._pin_comment(vid, product_links)
+                    except Exception:
+                        logger.warning("Could not pin comment on YouTube {}", vid)
+                import time as _time
+                _time.sleep(3)
 
             # Clean up temp video
             try:
@@ -338,7 +351,8 @@ class YouTubePublisher(BasePublisher):
             except Exception:
                 pass
 
-            result = PublishResult(success=True, platform_post_id=video_id, url=url)
+            url = f"https://www.youtube.com/shorts/{video_ids[0]}"
+            result = PublishResult(success=True, platform_post_id=",".join(video_ids), url=url)
 
         except FileNotFoundError as exc:
             result = PublishResult(success=False, error=str(exc))
