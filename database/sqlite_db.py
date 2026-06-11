@@ -234,6 +234,12 @@ class SqliteDatabase:
             cur = conn.execute("DELETE FROM used_products")
             return cur.rowcount
 
+    def reset_all_used(self) -> dict:
+        with self._connect() as conn:
+            p = conn.execute("UPDATE pinterest_images SET used=0, used_at=NULL").rowcount
+            m = conn.execute("DELETE FROM used_products").rowcount
+        return {"pinterest": p, "mulebuy": m}
+
     # ── Products cache ────────────────────────────────────────────────────
 
     def sync_products(self, products: List[Dict[str, Any]]):

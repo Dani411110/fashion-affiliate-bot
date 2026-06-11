@@ -543,7 +543,23 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return scrape_batch(target_count=count)
 
     total = await _run_in_thread(_do_scrape)
-    await update.message.reply_text(f"Salvate {total} poze noi de pe Pinterest.")
+    if total is not None and total < 0:
+        blocked = abs(total)
+        await update.message.reply_text(
+            f"Pinterest BLOCAT: {blocked} keyword(s) au dat login wall.\n"
+            "IP-ul Railway este probabil blocat de Pinterest.\n"
+            "Solutii:\n"
+            "1. Adauga proxy HTTP in settings (PINTEREST_PROXY)\n"
+            "2. Incarca pozele manual in /data/pinterest/"
+        )
+    elif not total:
+        await update.message.reply_text(
+            "0 poze salvate de pe Pinterest.\n"
+            "Posibile cauze: IP blocat, fara imagini noi, sau eroare de retea.\n"
+            "Vezi logurile Railway pentru detalii."
+        )
+    else:
+        await update.message.reply_text(f"Salvate {total} poze noi de pe Pinterest.")
 
 async def cmd_scrapeproducts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = get_settings()
@@ -579,6 +595,19 @@ async def cmd_resetmulebuy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = get_db().reset_all_mulebuy_products()
     await update.message.reply_text(
         f"✅ Istoricul de produse Mulebuy resetat ({count} inregistrari sterse). Toate produsele sunt disponibile din nou."
+    )
+
+
+async def cmd_resetall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    result = get_db().reset_all_used()
+    await update.message.reply_text(
+        f"✅ Reset complet:\n"
+        f"- {result['pinterest']} poze Pinterest marcate ca nefolosite\n"
+        f"- {result['mulebuy']} inregistrari produse Mulebuy sterse\n\n"
+        f"Poti rula .start din nou."
     )
 
 
@@ -898,6 +927,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "cacheimages": cmd_cacheimages,
         "resetpinterest": cmd_resetpinterest,
         "resetmulebuy": cmd_resetmulebuy,
+        "resetall": cmd_resetall,
     }
     handler = handlers.get(command)
     if handler:
