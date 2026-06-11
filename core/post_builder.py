@@ -252,7 +252,9 @@ class PostBuilder:
                     # Convert sharing link to direct download URL for API use
                     file_id = drive.get_file_id_from_link(link)
                     if file_id:
-                        direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+                        # Use thumbnail URL — bypasses Drive's virus-scan HTML redirect
+                        # that breaks Instagram/TikTok API image downloads
+                        direct_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w2000-h2000"
                         public_image_urls.append(direct_url)
                     else:
                         public_image_urls.append(link)
