@@ -36,13 +36,13 @@ class GoogleDriveClient:
     @staticmethod
     def _build_service(service_account_json: str):
         try:
-            if Path(service_account_json).exists():
+            try:
+                info = json.loads(service_account_json)
+                creds = Credentials.from_service_account_info(info, scopes=_SCOPES)
+            except json.JSONDecodeError:
                 creds = Credentials.from_service_account_file(
                     service_account_json, scopes=_SCOPES
                 )
-            else:
-                info = json.loads(service_account_json)
-                creds = Credentials.from_service_account_info(info, scopes=_SCOPES)
             return build("drive", "v3", credentials=creds, cache_discovery=False)
         except Exception as exc:
             raise DriveError(f"Drive auth failed: {exc}") from exc
