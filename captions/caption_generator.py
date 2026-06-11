@@ -118,7 +118,7 @@ class CaptionGenerator:
         platform: str,
     ) -> Dict[str, Any]:
         """Generate a caption dict {title, caption, hashtags} for one platform."""
-        title = self._title_from_category(category_name)
+        title = self._FIXED_TITLE
         try:
             data = self._call_openai(
                 pinterest_image_path, products, category_name, platform
@@ -151,8 +151,9 @@ class CaptionGenerator:
             )
         return result
 
+    _FIXED_TITLE = "🔥 Cele mai clean outfit-uri și sneakers 👀"
+
     _FIXED_CAPTION = (
-        "🔥 Cele mai clean outfit-uri și sneakers 👀\n\n"
         "DM me pentru comandă 📩\n\n"
         "🔥 Clean outfits & insane sneaker deals 👀\n\n"
         "DM me to order 📩\n\n"
@@ -166,7 +167,7 @@ class CaptionGenerator:
         platform: str,
     ) -> str:
         """Return the final formatted string ready for posting to *platform*."""
-        return self._FIXED_CAPTION
+        return self._FIXED_TITLE + "\n\n" + self._FIXED_CAPTION
 
 
 _generator_instance: Optional[CaptionGenerator] = None
