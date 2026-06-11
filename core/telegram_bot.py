@@ -688,10 +688,12 @@ async def _ask_category(bot: Bot, chat_id: int):
 async def _handle_category(update: Update, context: ContextTypes.DEFAULT_TYPE, category_num: int):
     query = update.callback_query
     await query.answer()
+    chat_id = query.message.chat_id
     category_name = CATEGORY_NAMES[category_num]
 
-    await query.edit_message_text(
-        f"*{category_name}*\n\nCate poze vrei in carusel?",
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"*{category_name}*\n\nCate poze vrei in carusel?",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=_image_count_keyboard(category_num),
     )
@@ -710,14 +712,16 @@ async def _handle_image_count(
 
     blocking_message = _stock_blocking_message(image_count)
     if blocking_message:
-        await query.edit_message_text(
-            blocking_message,
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=blocking_message,
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    await query.edit_message_text(
-        f"Construiesc post *{category_name}* cu *{image_count} poze*...",
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"Construiesc post *{category_name}* cu *{image_count} poze*...",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -866,11 +870,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
     logger.info("Callback data: {}", data)
-    # Trimite imediat confirmare vizibila
-    try:
-        await context.bot.send_message(chat_id=query.message.chat_id, text=f"⏳ Procesez: {data}")
-    except Exception:
-        pass
     try:
         if data.startswith("cat:"):
             await _handle_category(update, context, int(data.split(":")[1]))
