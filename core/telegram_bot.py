@@ -863,25 +863,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     data = query.data
-    if data.startswith("cat:"):
-        await _handle_category(update, context, int(data.split(":")[1]))
-    elif data.startswith("count:"):
-        _, category_num, image_count = data.split(":")
-        await _handle_image_count(
-            update,
-            context,
-            int(category_num),
-            int(image_count),
-        )
-    elif data.startswith("approve:"):
-        await _handle_approve(update, context, int(data.split(":")[1]))
-    elif data.startswith("pub:"):
-        _, post_id, platform = data.split(":", 2)
-        await _handle_platform_select(update, context, int(post_id), platform)
-    elif data.startswith("reject:"):
-        await _handle_reject(update, context, int(data.split(":")[1]))
-    elif data.startswith("regen:"):
-        await _handle_regen(update, context, int(data.split(":")[1]))
+    logger.info("Callback primit: {}", data)
+    try:
+        if data.startswith("cat:"):
+            await _handle_category(update, context, int(data.split(":")[1]))
+        elif data.startswith("count:"):
+            _, category_num, image_count = data.split(":")
+            await _handle_image_count(
+                update,
+                context,
+                int(category_num),
+                int(image_count),
+            )
+        elif data.startswith("approve:"):
+            await _handle_approve(update, context, int(data.split(":")[1]))
+        elif data.startswith("pub:"):
+            _, post_id, platform = data.split(":", 2)
+            await _handle_platform_select(update, context, int(post_id), platform)
+        elif data.startswith("reject:"):
+            await _handle_reject(update, context, int(data.split(":")[1]))
+        elif data.startswith("regen:"):
+            await _handle_regen(update, context, int(data.split(":")[1]))
+    except Exception as exc:
+        logger.exception("Eroare in callback_handler pentru data={}: {}", data, exc)
+        try:
+            await query.answer(f"Eroare: {exc}", show_alert=True)
+        except Exception:
+            pass
+        try:
+            chat_id = query.message.chat_id
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Eroare buton: {exc}")
+        except Exception:
+            pass
 
 
 # ── Scheduled job ─────────────────────────────────────────────────────────────
