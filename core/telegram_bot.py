@@ -859,11 +859,18 @@ async def _handle_regen(update: Update, context: ContextTypes.DEFAULT_TYPE, post
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     settings = get_settings()
+    logger.info("Callback primit de la chat_id={}, asteptat={}", query.message.chat_id, settings.telegram_chat_id)
     if query.message.chat_id != settings.telegram_chat_id:
+        logger.warning("Callback ignorat — chat_id nepotrivit")
         return
 
     data = query.data
-    logger.info("Callback primit: {}", data)
+    logger.info("Callback data: {}", data)
+    # Trimite imediat confirmare vizibila
+    try:
+        await context.bot.send_message(chat_id=query.message.chat_id, text=f"⏳ Procesez: {data}")
+    except Exception:
+        pass
     try:
         if data.startswith("cat:"):
             await _handle_category(update, context, int(data.split(":")[1]))
