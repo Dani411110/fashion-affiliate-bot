@@ -85,10 +85,11 @@ async def _scrape_keyword(
     target_count: int,
     save_dir: Path,
     drive_folder_id: str,
+    use_ai_filter: bool = False,
 ) -> int:
     """Scrape images for one keyword. Returns number of new approved images saved."""
     db = get_db()
-    image_filter = get_image_filter()
+    image_filter = get_image_filter() if use_ai_filter else None
     saved = 0
 
     encoded = urllib.parse.quote_plus(keyword)
@@ -107,9 +108,11 @@ async def _scrape_keyword(
         await asyncio.sleep(random.uniform(2.0, 4.0))
 
         # Detect login wall
-        if await page.query_selector("input[name='id']") or "login" in page.url:
-            logger.error("Pinterest login wall encountered — skipping keyword '{}'", keyword)
-            return 0
+        page_url = page.url
+        has_login_input = await page.query_selector("input[name='id']")
+        if has_login_input or "login" in page_url or "accounts/login" in page_url:
+            logger.error("Pinterest login wall for '{}' — URL: {}", keyword, page_url)
+            return -1  # distinct signal: login wall, not just 0 results
 
         image_urls = await _extract_pin_images(page, count=max(50, target_count * 3))
         logger.info("Found {} candidate URLs for '{}'", len(image_urls), keyword)
@@ -137,14 +140,15 @@ async def _scrape_keyword(
                     dest.unlink(missing_ok=True)
                     continue
 
-                # AI quality filter
-                filter_result = image_filter.check_image(dest)
-                if not filter_result.approved:
-                    logger.debug(
-                        "Filter rejected {}: {}", filename, filter_result.reason
-                    )
-                    dest.unlink(missing_ok=True)
-                    continue
+                # AI quality filter (only when enabled)
+                if image_filter is not None:
+                    filter_result = image_filter.check_image(dest)
+                    if not filter_result.approved:
+                        logger.debug(
+                            "Filter rejected {}: {}", filename, filter_result.reason
+                        )
+                        dest.unlink(missing_ok=True)
+                        continue
 
                 # Upload to Drive
                 drive_link = ""
@@ -186,22 +190,44 @@ async def _scrape_batch_async(
     target_count: int,
     save_dir: Path,
     drive_folder_id: str,
+    use_ai_filter: bool = False,
+    proxy: Optional[str] = None,
 ) -> int:
     total = 0
+    login_wall_hits = 0
+    launch_kwargs = {"headless": True}
+    if proxy:
+        launch_kwargs["proxy"] = {"server": proxy}
+        logger.info("Pinterest scraper using proxy: {}", proxy[:30])
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(**launch_kwargs)
         try:
             per_keyword = max(2, target_count // max(len(keywords), 1))
             for keyword in keywords:
                 saved = await _scrape_keyword(
-                    browser, keyword, per_keyword, save_dir, drive_folder_id
+                    browser, keyword, per_keyword, save_dir, drive_folder_id,
+                    use_ai_filter=use_ai_filter,
                 )
+                if saved == -1:
+                    login_wall_hits += 1
+                    logger.error(
+                        "Login wall hit for '{}' ({}/{} keywords). "
+                        "Railway IP is likely blocked by Pinterest.",
+                        keyword, login_wall_hits, len(keywords),
+                    )
+                    # If every keyword hits the login wall, abort early
+                    if login_wall_hits >= len(keywords):
+                        logger.error("All keywords hit login wall — aborting scrape")
+                        break
+                    continue
                 total += saved
                 if total >= target_count:
                     break
                 await asyncio.sleep(random.uniform(3.0, 6.0))
         finally:
             await browser.close()
+    if login_wall_hits > 0 and total == 0:
+        return -login_wall_hits  # negative = how many keywords were blocked
     return total
 
 
@@ -228,8 +254,9 @@ def scrape_batch(
         len(kws),
         target_count,
     )
+    proxy = settings.pinterest_proxy or None
     total = asyncio.run(
-        _scrape_batch_async(kws, target_count, save_dir, drive_folder_id)
+        _scrape_batch_async(kws, target_count, save_dir, drive_folder_id, use_ai_filter=False, proxy=proxy)
     )
     logger.info("Pinterest scrape complete. Total saved: {}", total)
     return total

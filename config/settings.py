@@ -208,6 +208,13 @@ class Settings:
         default_factory=lambda: _int("MIN_PINTEREST_STOCK", 5)
     )
 
+    # ── Pinterest ─────────────────────────────────────────────────────────
+    # Optional HTTP/SOCKS5 proxy for Pinterest scraper (Railway IPs often blocked)
+    # Example: "http://user:pass@proxy.host:8080" or "socks5://proxy.host:1080"
+    pinterest_proxy: str = field(
+        default_factory=lambda: _get("PINTEREST_PROXY", "")
+    )
+
     # ── Pinterest keywords ────────────────────────────────────────────────
     pinterest_keywords: List[str] = field(
         default_factory=lambda: [
