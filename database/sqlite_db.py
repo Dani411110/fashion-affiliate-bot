@@ -229,6 +229,23 @@ class SqliteDatabase:
             cur = conn.execute("UPDATE pinterest_images SET used=0, used_at=NULL")
             return cur.rowcount
 
+    def delete_pinterest_image(self, image_id: int) -> str:
+        """Sterge o poza Pinterest din DB si returneaza local_path pentru a sterge fisierul."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT local_path FROM pinterest_images WHERE id=?", (image_id,)
+            ).fetchone()
+            conn.execute("DELETE FROM pinterest_images WHERE id=?", (image_id,))
+        return row["local_path"] if row else ""
+
+    def get_all_unused_pinterest_images(self) -> List[Dict[str, Any]]:
+        """Returneaza toate pozele Pinterest nefolosite (fara limita)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM pinterest_images WHERE used=0 ORDER BY scraped_at ASC"""
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def reset_all_mulebuy_products(self) -> int:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM used_products")

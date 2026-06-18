@@ -54,6 +54,9 @@ _sessions: Dict[int, Dict[str, Any]] = {}
 # Posturi pending aprobare: post_id → PostPackage
 _pending: Dict[int, Any] = {}
 
+# Galerie: chat_id → {images: [...], index: int}
+_gallery_sessions: Dict[int, Dict[str, Any]] = {}
+
 POSTS_PER_SESSION = 3
 
 
@@ -142,6 +145,7 @@ def _help_text() -> str:
     return (
         "*Fashion Bot commands*\n\n"
         ".prepare - construieste 3 posturi si le adauga in coada (recomandat)\n"
+        ".gallery - vizualizeaza si sterge poze din baza de date\n"
         ".run - sesiune de 3 posturi cu publicare imediata\n"
         ".start - construieste un post individual\n"
         ".status - statistici DB\n"
@@ -421,6 +425,181 @@ async def _publish_package(pkg, platforms: set = None):
     if any(result.success for _, result in results):
         get_db().mark_post_status(pkg.post_id, "posted")
     return results
+
+
+# ── Gallery helpers ───────────────────────────────────────────────────────────
+
+def _gallery_keyboard(index: int, total: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗑️ Șterge", callback_data="gal_del"),
+            InlineKeyboardButton(f"➡️ ({index + 1}/{total})", callback_data="gal_next"),
+        ],
+        [InlineKeyboardButton("✅ Gata", callback_data="gal_done")],
+    ])
+
+
+async def _gallery_show(bot: Bot, chat_id: int):
+    """Trimite poza curenta din galerie cu butoane."""
+    session = _gallery_sessions.get(chat_id)
+    if not session:
+        return
+    images = session["images"]
+    idx = session["index"]
+    if idx >= len(images):
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ *Galerie terminată!* Ai parcurs toate {len(images)} pozele.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        _gallery_sessions.pop(chat_id, None)
+        return
+
+    img = images[idx]
+    local_path = Path(img["local_path"])
+    img_type = img["type"]
+    name = img.get("name", local_path.name)
+    caption = f"*{img_type.upper()}* — {_escape_md(name)}\nPoza {idx + 1}/{len(images)}"
+
+    keyboard = _gallery_keyboard(idx, len(images))
+
+    if local_path.exists():
+        try:
+            import io
+            data = _to_jpeg_bytes(local_path)
+            buf = io.BytesIO(data)
+            buf.name = "img.jpg"
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=buf,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard,
+            )
+            return
+        except Exception as exc:
+            logger.warning("Gallery send photo failed: {}", exc)
+
+    # Fisier lipsa — skip automat
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"⚠️ Fisier lipsa: {_escape_md(str(local_path))}\nTrec la urmatoarea...",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    session["index"] += 1
+    await _gallery_show(bot, chat_id)
+
+
+async def cmd_gallery(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Afiseaza galeria de poze disponibile cu optiune de stergere."""
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+    chat_id = update.effective_chat.id
+
+    # Construieste lista de imagini: Pinterest + repgalaxy
+    images = []
+
+    # Pinterest nefolosite
+    pinterest_rows = get_db().get_all_unused_pinterest_images()
+    for row in pinterest_rows:
+        if row.get("local_path"):
+            images.append({
+                "type": "pinterest",
+                "id": row["id"],
+                "local_path": row["local_path"],
+                "name": row.get("url", "")[-60:],
+            })
+
+    # Repgalaxy
+    repgalaxy_dir = Path("data/repgalaxy_images")
+    if repgalaxy_dir.exists():
+        for subdir in sorted(repgalaxy_dir.iterdir()):
+            if subdir.is_dir():
+                for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                    for p in sorted(subdir.glob(ext)):
+                        images.append({
+                            "type": "repgalaxy",
+                            "id": None,
+                            "local_path": str(p),
+                            "name": f"{subdir.name}/{p.name}",
+                        })
+
+    if not images:
+        await update.message.reply_text("Nu există poze disponibile în baza de date.")
+        return
+
+    _gallery_sessions[chat_id] = {"images": images, "index": 0}
+    await update.message.reply_text(
+        f"🖼 *Galerie* — {len(images)} poze disponibile\n"
+        f"({len(pinterest_rows)} Pinterest + {len(images) - len(pinterest_rows)} Repgalaxy)\n\n"
+        "Folosește butoanele să navighezi sau să ștergi pozele care nu îți plac.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    await _gallery_show(context.bot, chat_id)
+
+
+async def _handle_gal_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("🗑️ Șters!")
+    chat_id = query.message.chat_id
+
+    session = _gallery_sessions.get(chat_id)
+    if not session:
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    img = session["images"][session["index"]]
+    local_path = Path(img["local_path"])
+
+    # Sterge din DB sau de pe disk
+    if img["type"] == "pinterest" and img.get("id"):
+        get_db().delete_pinterest_image(img["id"])
+    if local_path.exists():
+        try:
+            local_path.unlink()
+        except Exception as exc:
+            logger.warning("Nu am putut sterge fisierul {}: {}", local_path, exc)
+
+    logger.info("Gallery: deleted {} image {}", img["type"], local_path.name)
+
+    # Sterge din lista si arata urmatoarea
+    session["images"].pop(session["index"])
+    # index raman pe loc (urmatoarea e acum la acelasi index)
+    if session["index"] >= len(session["images"]):
+        session["index"] = max(0, len(session["images"]) - 1)
+
+    await query.edit_message_reply_markup(reply_markup=None)
+    await _gallery_show(context.bot, chat_id)
+
+
+async def _handle_gal_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+
+    session = _gallery_sessions.get(chat_id)
+    if not session:
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    session["index"] += 1
+    await query.edit_message_reply_markup(reply_markup=None)
+    await _gallery_show(context.bot, chat_id)
+
+
+async def _handle_gal_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("✅ Galerie închisă")
+    chat_id = query.message.chat_id
+    session = _gallery_sessions.pop(chat_id, None)
+    remaining = len(session["images"]) - session.get("index", 0) if session else 0
+    await query.edit_message_reply_markup(reply_markup=None)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"✅ Galerie închisă. Mai sunt {remaining} poze nevăzute.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 # ── Command handlers ──────────────────────────────────────────────────────────
@@ -1066,6 +1245,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _handle_p_caps(update, context, int(data.split(":")[1]))
         elif data.startswith("p_skip:"):
             await _handle_p_skip(update, context, int(data.split(":")[1]))
+        elif data == "gal_del":
+            await _handle_gal_del(update, context)
+        elif data == "gal_next":
+            await _handle_gal_next(update, context)
+        elif data == "gal_done":
+            await _handle_gal_done(update, context)
     except Exception as exc:
         logger.exception("Eroare in callback_handler pentru data={}: {}", data, exc)
         try:
@@ -1163,6 +1348,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "doctor": cmd_readiness,
         "run": cmd_run,
         "prepare": cmd_prepare,
+        "gallery": cmd_gallery,
         "postqueue": cmd_postqueue,
         "scrape": cmd_scrape,
         "scrapeproducts": cmd_scrapeproducts,
@@ -1197,6 +1383,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("doctor", cmd_readiness))
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("prepare", cmd_prepare))
+    app.add_handler(CommandHandler("gallery", cmd_gallery))
     app.add_handler(CommandHandler("postqueue", cmd_postqueue))
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
