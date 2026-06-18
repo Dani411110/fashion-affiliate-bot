@@ -86,6 +86,18 @@ def _approval_keyboard(post_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+def _prepare_keyboard(post_id: int) -> InlineKeyboardMarkup:
+    """Butoane pentru modul .prepare (adauga in coada, nu posta imediat)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Adaugă în coadă", callback_data=f"p_add:{post_id}")],
+        [
+            InlineKeyboardButton("🔄 Poze noi", callback_data=f"p_regen:{post_id}"),
+            InlineKeyboardButton("✏️ Captions noi", callback_data=f"p_caps:{post_id}"),
+        ],
+        [InlineKeyboardButton("❌ Skip", callback_data=f"p_skip:{post_id}")],
+    ])
+
+
 def _platform_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -129,16 +141,17 @@ async def _send_start_menu(update: Update):
 def _help_text() -> str:
     return (
         "*Fashion Bot commands*\n\n"
-        ".start - alege categoria si numarul de poze\n"
+        ".prepare - construieste 3 posturi si le adauga in coada (recomandat)\n"
+        ".run - sesiune de 3 posturi cu publicare imediata\n"
+        ".start - construieste un post individual\n"
         ".status - statistici DB\n"
         ".queue - ultimele postari si coada\n"
         ".platforms - platforme active/inactive\n"
         ".scrape 50 - scrape Pinterest\n"
         ".scrapeproducts 30 - scrape Mulebuy\n"
         ".syncsheet - sync Google Sheet in SQLite\n"
-        ".cacheimages - descarca toate imaginile produselor local\n"
-        ".run - sesiune de 3 posturi\n\n"
-        "Flow: .start -> categorie -> 5/6/7/8 poze -> preview album -> approve/reject/regenerate."
+        ".cacheimages - descarca toate imaginile produselor local\n\n"
+        "Flow recomandat: .prepare -> aproba fiecare post -> botul posteaza automat la 08:00 / 13:00 / 20:00"
     )
 
 
@@ -289,7 +302,7 @@ def _to_jpeg_bytes(path: Path) -> bytes:
         return buf.getvalue()
 
 
-async def _send_post_preview(bot: Bot, chat_id: int, pkg):
+async def _send_post_preview(bot: Bot, chat_id: int, pkg, keyboard=None):
     """Trimite preview complet al postului cu butoane de aprobare."""
     _pending[pkg.post_id] = pkg
 
@@ -364,7 +377,7 @@ async def _send_post_preview(bot: Bot, chat_id: int, pkg):
         chat_id=chat_id,
         text=text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_approval_keyboard(pkg.post_id),
+        reply_markup=keyboard if keyboard is not None else _approval_keyboard(pkg.post_id),
     )
 
 async def _publish_package(pkg, platforms: set = None):
@@ -474,7 +487,7 @@ async def cmd_readiness(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Porneste o sesiune manuala de 3 posturi."""
+    """Porneste o sesiune manuala de 3 posturi (publica imediat)."""
     settings = get_settings()
     if update.effective_chat.id != settings.telegram_chat_id:
         return
@@ -483,7 +496,37 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _sessions[chat_id] = {
         "post_index": 0,
         "packages": [],
+        "mode": "run",
     }
+    await _ask_category(context.bot, chat_id)
+
+
+async def cmd_prepare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Construieste 3 posturi si le adauga in coada pentru postare automata."""
+    settings = get_settings()
+    if update.effective_chat.id != settings.telegram_chat_id:
+        return
+
+    chat_id = update.effective_chat.id
+    existing = get_db().get_posts_by_status("scheduled")
+    if existing:
+        await update.message.reply_text(
+            f"⚠️ Ai deja {len(existing)} post(uri) în coadă.\n"
+            "Continuă adăugând mai multe sau așteaptă să fie publicate.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+    _sessions[chat_id] = {
+        "post_index": 0,
+        "packages": [],
+        "mode": "prepare",
+    }
+    await update.message.reply_text(
+        "📅 *Mod pregătire coadă*\n\n"
+        "Construiesc 3 posturi pe care le vei aproba în avans.\n"
+        "La fiecare oră programată (08:00, 13:00, 20:00) botul va publica automat primul post din coadă.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
     await _ask_category(context.bot, chat_id)
 
 
@@ -725,9 +768,11 @@ async def _handle_image_count(
             allow_auto_scrape=False,
         )
 
+    prepare_mode = _sessions.get(chat_id, {}).get("mode") == "prepare"
     try:
         pkg = await _run_in_thread(_build)
-        await _send_post_preview(context.bot, chat_id, pkg)
+        kboard = _prepare_keyboard(pkg.post_id) if prepare_mode else None
+        await _send_post_preview(context.bot, chat_id, pkg, keyboard=kboard)
     except Exception as exc:
         logger.exception("Build post failed")
         await context.bot.send_message(chat_id=chat_id, text=f"Eroare la construire post: {exc}")
@@ -850,6 +895,133 @@ async def _handle_regen(update: Update, context: ContextTypes.DEFAULT_TYPE, post
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Eroare regenerare: {exc}")
 
 
+# ── Prepare-mode handlers ────────────────────────────────────────────────────
+
+async def _handle_p_add(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
+    """Adauga post in coada scheduled (nu publica acum)."""
+    query = update.callback_query
+    await query.answer("📅 Adăugat în coadă!")
+    chat_id = query.message.chat_id
+
+    pkg = _pending.pop(post_id, None)
+    if not pkg:
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    get_db().mark_post_status(post_id, "scheduled")
+    scheduled_count = len(get_db().get_posts_by_status("scheduled"))
+    await query.edit_message_text(
+        f"📅 *Post #{post_id} adăugat în coadă!*\nPosturi în coadă: {scheduled_count}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    if chat_id in _sessions:
+        _sessions[chat_id]["post_index"] += 1
+        _sessions[chat_id].setdefault("packages", []).append(pkg)
+        idx = _sessions[chat_id]["post_index"]
+        if idx >= POSTS_PER_SESSION:
+            settings = get_settings()
+            times = [settings.post_time_1, settings.post_time_2, settings.post_time_3]
+            queued = get_db().get_posts_by_status("scheduled")
+            lines = ["✅ *Pregătire completă!*\n", "Posturi în coadă:"]
+            for i, rec in enumerate(queued[:3]):
+                slot = times[i] if i < len(times) else "?"
+                lines.append(f"  • Post #{rec['id']} → {slot}")
+            _sessions.pop(chat_id, None)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="\n".join(lines),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await _ask_category(context.bot, chat_id)
+
+
+async def _handle_p_regen(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
+    """Regenereaza postul complet cu poze noi."""
+    query = update.callback_query
+    await query.answer("🔄 Regenerez cu poze noi...")
+    chat_id = query.message.chat_id
+
+    pkg = _pending.pop(post_id, None)
+    if not pkg:
+        return
+
+    get_db().mark_post_status(post_id, "rejected")
+    await query.edit_message_text("🔄 *Construiesc post nou cu poze diferite...*", parse_mode=ParseMode.MARKDOWN)
+
+    category_name = pkg.category
+    image_count = len(pkg.all_images)
+
+    def _rebuild():
+        from core.post_builder import PostBuilder
+        return PostBuilder().build_post(category_name, image_count=image_count, allow_auto_scrape=False)
+
+    try:
+        new_pkg = await _run_in_thread(_rebuild)
+        await _send_post_preview(context.bot, chat_id, new_pkg, keyboard=_prepare_keyboard(new_pkg.post_id))
+    except Exception as exc:
+        logger.exception("Regen post (poze noi) failed")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Eroare regenerare post: {exc}")
+
+
+async def _handle_p_caps(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
+    """Regenereaza doar captioanele, pastreaza pozele."""
+    query = update.callback_query
+    await query.answer("✏️ Regenerez captioanele...")
+    chat_id = query.message.chat_id
+
+    pkg = _pending.get(post_id)
+    if not pkg:
+        return
+
+    await query.edit_message_text("✏️ *Regenerez captioanele cu GPT-4o...*", parse_mode=ParseMode.MARKDOWN)
+
+    def _regen():
+        from captions.caption_generator import get_caption_generator
+        cap_gen = get_caption_generator()
+        new_caps = cap_gen.generate_all_platforms(
+            Path(pkg.pinterest_image_path), pkg.products, pkg.category
+        )
+        new_fmt = {
+            pl: cap_gen.format_for_platform(cd, pkg.products, pl)
+            for pl, cd in new_caps.items()
+        }
+        return new_caps, new_fmt
+
+    try:
+        new_caps, new_fmt = await _run_in_thread(_regen)
+        pkg.captions = new_caps
+        pkg.formatted_captions = new_fmt
+        get_db().update_post_captions(
+            post_id,
+            new_fmt.get("instagram", ""),
+            " ".join(f"#{h}" for h in new_caps.get("instagram", {}).get("hashtags", [])),
+            captions_json=new_caps,
+            formatted_captions_json=new_fmt,
+        )
+        await context.bot.send_message(chat_id=chat_id, text="✅ Captioane regenerate!")
+        await _send_post_preview(context.bot, chat_id, pkg, keyboard=_prepare_keyboard(pkg.post_id))
+    except Exception as exc:
+        logger.exception("Caps regen (prepare) failed")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Eroare regenerare captions: {exc}")
+
+
+async def _handle_p_skip(update: Update, context: ContextTypes.DEFAULT_TYPE, post_id: int):
+    """Skip post in modul prepare."""
+    query = update.callback_query
+    await query.answer("❌ Skip")
+    chat_id = query.message.chat_id
+
+    _pending.pop(post_id, None)
+    get_db().mark_post_status(post_id, "rejected")
+    await query.edit_message_text("❌ *Post sărit.*", parse_mode=ParseMode.MARKDOWN)
+
+    if chat_id in _sessions:
+        _sessions[chat_id]["post_index"] += 1
+        await _ask_category(context.bot, chat_id)
+
+
 # ── Master callback handler ───────────────────────────────────────────────────
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -886,6 +1058,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _handle_reject(update, context, int(data.split(":")[1]))
         elif data.startswith("regen:"):
             await _handle_regen(update, context, int(data.split(":")[1]))
+        elif data.startswith("p_add:"):
+            await _handle_p_add(update, context, int(data.split(":")[1]))
+        elif data.startswith("p_regen:"):
+            await _handle_p_regen(update, context, int(data.split(":")[1]))
+        elif data.startswith("p_caps:"):
+            await _handle_p_caps(update, context, int(data.split(":")[1]))
+        elif data.startswith("p_skip:"):
+            await _handle_p_skip(update, context, int(data.split(":")[1]))
     except Exception as exc:
         logger.exception("Eroare in callback_handler pentru data={}: {}", data, exc)
         try:
@@ -902,15 +1082,62 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Scheduled job ─────────────────────────────────────────────────────────────
 
 async def scheduled_post_job(bot: Bot, chat_id: int):
-    """Declansat automat la orele programate."""
+    """Declansat automat la orele programate — publica primul post din coada scheduled."""
     logger.info("Scheduled post job triggered")
-    _sessions[chat_id] = {"post_index": 0, "packages": []}
+    from core.post_builder import package_from_db_record
+
+    scheduled = get_db().get_posts_by_status("scheduled")
+    if not scheduled:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "⚠️ *Ora de postare — coada e goală!*\n\n"
+                "Nu sunt posturi pregătite. Rulează `.prepare` pentru a adăuga posturi în coadă."
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    record = scheduled[0]
+    post_id = record["id"]
+    logger.info("Auto-posting scheduled post #{}", post_id)
     await bot.send_message(
         chat_id=chat_id,
-        text="⏰ *Ora de postare!*\nSelecteaza categoria pentru primul post:",
+        text=f"⏰ *Ora de postare!*\nPublic post #{post_id} din coadă...",
         parse_mode=ParseMode.MARKDOWN,
     )
-    await _ask_category(bot, chat_id)
+
+    try:
+        pkg = package_from_db_record(record)
+        results = await _publish_package(pkg)
+        remaining = len(get_db().get_posts_by_status("scheduled"))
+
+        if not results:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"⚠️ Post #{post_id}: nicio platformă activă.\nPosturi rămase în coadă: {remaining}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        lines = [f"✅ *Post #{post_id} publicat!*\n"]
+        for platform, result in results:
+            if result.success:
+                lines.append(f"{platform.upper()}: {_escape_md(str(result.url or result.platform_post_id or ''))}")
+            else:
+                lines.append(f"{platform.upper()} FAILED: {_escape_md(str(result.error or '')[:80])}")
+        lines.append(f"\n📋 Posturi rămase în coadă: {remaining}")
+        if remaining == 0:
+            lines.append("⚠️ Coada e goală! Rulează `.prepare` când ești gata.")
+        await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as exc:
+        logger.exception("Scheduled post job failed for post {}", post_id)
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"❌ Eroare la publicare post #{post_id}: {_escape_md(str(exc)[:200])}",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
 
 # ── App builder ───────────────────────────────────────────────────────────────
@@ -935,6 +1162,7 @@ async def dot_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "readiness": cmd_readiness,
         "doctor": cmd_readiness,
         "run": cmd_run,
+        "prepare": cmd_prepare,
         "postqueue": cmd_postqueue,
         "scrape": cmd_scrape,
         "scrapeproducts": cmd_scrapeproducts,
@@ -968,6 +1196,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("readiness", cmd_readiness))
     app.add_handler(CommandHandler("doctor", cmd_readiness))
     app.add_handler(CommandHandler("run", cmd_run))
+    app.add_handler(CommandHandler("prepare", cmd_prepare))
     app.add_handler(CommandHandler("postqueue", cmd_postqueue))
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("scrapeproducts", cmd_scrapeproducts))
