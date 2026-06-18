@@ -146,25 +146,71 @@ class YouTubePublisher(BasePublisher):
             self._token_path.write_text(self._token_json, encoding="utf-8")
             logger.info("YouTube token written from env var to {}", self._token_path)
 
+    def _load_creds_from_file(self) -> Optional[Credentials]:
+        """Load credentials from token file, with manual fallback for format compatibility."""
+        if not self._token_path.exists():
+            logger.warning("YouTube token file not found: {}", self._token_path)
+            return None
+
+        # Try the standard loader first
+        try:
+            creds = Credentials.from_authorized_user_file(str(self._token_path), _YT_SCOPES)
+            logger.debug("YouTube creds loaded via from_authorized_user_file")
+            return creds
+        except Exception as exc:
+            logger.warning("from_authorized_user_file failed ({}), trying manual load", exc)
+
+        # Manual fallback: build Credentials directly from JSON fields
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            info = _json.loads(self._token_path.read_text(encoding="utf-8"))
+            expiry = None
+            if info.get("expiry"):
+                try:
+                    expiry = _dt.fromisoformat(info["expiry"].replace("Z", "+00:00")).replace(tzinfo=_tz.utc)
+                except Exception:
+                    pass
+            creds = Credentials(
+                token=info.get("token"),
+                refresh_token=info.get("refresh_token"),
+                token_uri=info.get("token_uri", "https://oauth2.googleapis.com/token"),
+                client_id=info.get("client_id"),
+                client_secret=info.get("client_secret"),
+                scopes=info.get("scopes") or _YT_SCOPES,
+                expiry=expiry,
+            )
+            logger.info("YouTube creds loaded via manual JSON parse (expiry={})", info.get("expiry"))
+            return creds
+        except Exception as exc2:
+            logger.error("Manual YouTube creds load also failed: {}", exc2)
+            return None
+
     def _get_service(self):
         if self._service:
             return self._service
 
-        creds: Optional[Credentials] = None
-
-        if self._token_path.exists():
-            try:
-                creds = Credentials.from_authorized_user_file(str(self._token_path), _YT_SCOPES)
-            except Exception:
-                creds = None
+        creds = self._load_creds_from_file()
 
         if creds and creds.expired and creds.refresh_token:
+            logger.info("YouTube token expired — refreshing via refresh_token")
             try:
                 creds.refresh(Request())
-            except Exception:
+                # Persist refreshed token
+                try:
+                    self._token_path.write_text(creds.to_json(), encoding="utf-8")
+                    logger.info("Refreshed YouTube token saved to {}", self._token_path)
+                except Exception as save_exc:
+                    logger.warning("Could not save refreshed token: {}", save_exc)
+            except Exception as exc:
+                logger.error("YouTube token refresh failed: {}", exc)
                 creds = None
 
         if not creds or not creds.valid:
+            logger.error(
+                "YouTube creds invalid after load attempt: creds={} valid={} expired={}",
+                bool(creds), getattr(creds, "valid", None), getattr(creds, "expired", None),
+            )
             raise RuntimeError(
                 "YouTube OAuth token lipsa sau expirat. "
                 "Ruleaza 'python main.py youtube-auth-url' local, completeaza OAuth, "
