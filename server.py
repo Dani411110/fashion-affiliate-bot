@@ -63,8 +63,7 @@ async def main():
         os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "not detected"),
     )
     logger.info(
-        "Platforms enabled: reddit={}, instagram={}, tiktok={}, youtube={}",
-        settings.enable_reddit,
+        "Platforms enabled: instagram={}, tiktok={}, youtube={}",
         settings.enable_instagram,
         settings.enable_tiktok,
         settings.enable_youtube,

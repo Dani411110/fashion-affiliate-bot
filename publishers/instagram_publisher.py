@@ -17,7 +17,7 @@ from utils.retry import retry_on_network_error
 
 logger = get_logger(__name__)
 
-_GRAPH_BASE = "https://graph.instagram.com/v19.0"
+_GRAPH_BASE = "https://graph.facebook.com/v21.0"
 _MAX_CAROUSEL_ITEMS = 10   # Instagram carousel limit
 _POLL_INTERVAL = 5
 _POLL_TIMEOUT = 120
@@ -43,6 +43,8 @@ class InstagramPublisher(BasePublisher):
             "access_token": self._token,
         }
         resp = requests.post(url, data=payload, timeout=30)
+        if not resp.ok:
+            logger.error("IG container 400 body: {}", resp.text[:500])
         resp.raise_for_status()
         container_id = resp.json()["id"]
         logger.debug("IG item container created: {}", container_id)
@@ -120,62 +122,83 @@ class InstagramPublisher(BasePublisher):
         ),
     ]
 
+    _POST_DELAY = 30  # seconds between the two IG posts (avoid rate-limit)
+
     # ── Main publish ──────────────────────────────────────────────────────
 
+    def _publish_one(self, public_urls: List[str], caption: str, index: int) -> str:
+        """Create containers, wait for FINISHED, publish. Returns media_id."""
+        logger.info("IG post {}/2 — creating {} item containers…", index, len(public_urls))
+        children: List[str] = []
+        for i, img_url in enumerate(public_urls):
+            try:
+                cid = self._create_item_container(img_url)
+                children.append(cid)
+                time.sleep(0.5)
+            except Exception:
+                logger.exception("Failed to create IG item container for image {}", i)
+
+        if len(children) < 2:
+            raise RuntimeError(
+                f"Only {len(children)} item container(s) created — need at least 2 for carousel"
+            )
+
+        carousel_id = self._create_carousel_container(children, caption)
+        ready = self._poll_until_ready(carousel_id)
+        if not ready:
+            raise RuntimeError(f"Carousel container {carousel_id} never reached FINISHED")
+
+        media_id = self._publish_container(carousel_id)
+        logger.info("IG post {}/2 published: media_id={}", index, media_id)
+        return media_id
+
     def publish(self, post_package: Any) -> PublishResult:
-        try:
-            public_urls = [u for u in (post_package.public_image_urls or []) if u]
-            if not public_urls:
-                raise ValueError("No public image URLs available for Instagram carousel.")
+        if not self._token or not self._user_id:
+            result = PublishResult(success=False, error="Instagram: INSTAGRAM_ACCESS_TOKEN sau INSTAGRAM_USER_ID nu sunt setate.")
+            self.update_db_status(post_package.post_id, result)
+            return result
 
-            public_urls = public_urls[:_MAX_CAROUSEL_ITEMS]
-            if len(public_urls) < 2:
-                public_urls = public_urls * 2
+        # Filtrare URL-uri: Instagram API accepta doar http/https, nu file://
+        public_urls = [u for u in (post_package.public_image_urls or []) if u and u.startswith("http")]
+        if not public_urls:
+            result = PublishResult(success=False, error="No public HTTP image URLs for Instagram (RAILWAY_PUBLIC_DOMAIN not set?).")
+            self.update_db_status(post_package.post_id, result)
+            return result
 
-            media_ids = []
-            for caption in self._CAPTIONS:
-                # Each post needs its own set of item containers
-                logger.info("Creating {} IG item containers (caption variant)…", len(public_urls))
-                children: List[str] = []
-                for i, img_url in enumerate(public_urls):
-                    try:
-                        cid = self._create_item_container(img_url)
-                        children.append(cid)
-                        time.sleep(0.5)
-                    except Exception:
-                        logger.exception("Failed to create IG item container for image {}", i)
+        public_urls = public_urls[:_MAX_CAROUSEL_ITEMS]
+        if len(public_urls) < 2:
+            public_urls = public_urls * 2
 
-                if len(children) < 2:
-                    raise RuntimeError(
-                        f"Only {len(children)} item container(s) created — need at least 2 for carousel"
-                    )
+        media_ids: List[str] = []
+        errors: List[str] = []
 
-                carousel_id = self._create_carousel_container(children, caption)
-                ready = self._poll_until_ready(carousel_id)
-                if not ready:
-                    raise RuntimeError(f"Carousel container {carousel_id} never reached FINISHED")
-
-                media_id = self._publish_container(carousel_id)
+        for idx, caption in enumerate(self._CAPTIONS, start=1):
+            if idx > 1:
+                logger.info("Waiting {}s before IG post {}/2…", self._POST_DELAY, idx)
+                time.sleep(self._POST_DELAY)
+            try:
+                media_id = self._publish_one(public_urls, caption, idx)
                 media_ids.append(media_id)
-                logger.info("IG carousel {} published: {}", len(media_ids), media_id)
-                time.sleep(3)
+            except requests.HTTPError as exc:
+                body = exc.response.text[:200] if exc.response else ""
+                err = f"Post {idx} HTTP {exc.response.status_code if exc.response else '?'}: {body}"
+                logger.error("IG post {}/2 failed: {}", idx, err)
+                errors.append(err)
+            except Exception as exc:
+                logger.exception("IG post {}/2 failed", idx)
+                errors.append(f"Post {idx}: {exc}")
 
+        if media_ids:
             url = f"https://www.instagram.com/p/{media_ids[0]}/"
+            error_note = f" (post 2 failed: {errors[-1]})" if errors else ""
             result = PublishResult(
                 success=True,
                 platform_post_id=",".join(media_ids),
                 url=url,
+                error=error_note,
             )
-
-        except requests.HTTPError as exc:
-            body = exc.response.text[:300] if exc.response else ""
-            result = PublishResult(
-                success=False,
-                error=f"HTTP {exc.response.status_code if exc.response else '?'}: {body}",
-            )
-        except Exception as exc:
-            logger.exception("Instagram carousel publish failed")
-            result = PublishResult(success=False, error=str(exc))
+        else:
+            result = PublishResult(success=False, error="; ".join(errors))
 
         self.update_db_status(post_package.post_id, result)
         return result

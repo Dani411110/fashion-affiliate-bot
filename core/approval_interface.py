@@ -159,9 +159,9 @@ class CLIApprovalInterface:
                     post_package.formatted_captions = new_formatted
                     self._db.update_post_captions(
                         post_package.post_id,
-                        new_formatted.get("reddit", ""),
+                        new_formatted.get("instagram", ""),
                         " ".join(
-                            f"#{h}" for h in new_captions.get("reddit", {}).get("hashtags", [])
+                            f"#{h}" for h in new_captions.get("instagram", {}).get("hashtags", [])
                         ),
                     )
                     console.print("[green]Captions regenerated.[/green]")

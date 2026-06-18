@@ -110,22 +110,6 @@ class Settings:
         default_factory=lambda: _get("DRIVE_FOLDER_RAW_PINTEREST_ID")
     )
 
-    # ── Reddit ────────────────────────────────────────────────────────────
-    reddit_client_id: str = field(default_factory=lambda: _get("REDDIT_CLIENT_ID"))
-    reddit_client_secret: str = field(
-        default_factory=lambda: _get("REDDIT_CLIENT_SECRET")
-    )
-    reddit_username: str = field(default_factory=lambda: _get("REDDIT_USERNAME"))
-    reddit_password: str = field(default_factory=lambda: _get("REDDIT_PASSWORD"))
-    reddit_user_agent: str = field(
-        default_factory=lambda: _get(
-            "REDDIT_USER_AGENT", "FashionAffiliateBot/1.0 by u/youruser"
-        )
-    )
-    reddit_subreddit: str = field(
-        default_factory=lambda: _get("REDDIT_SUBREDDIT", "fashionfinds")
-    )
-
     # ── Instagram ────────────────────────────────────────────────────────
     instagram_access_token: str = field(
         default_factory=lambda: _get("INSTAGRAM_ACCESS_TOKEN")
@@ -185,7 +169,6 @@ class Settings:
     post_time_3: str = field(default_factory=lambda: _get("POST_TIME_3", "19:00"))
 
     # ── Platform toggles ─────────────────────────────────────────────────
-    enable_reddit: bool = field(default_factory=lambda: _bool("ENABLE_REDDIT", False))
     enable_tiktok: bool = field(default_factory=lambda: _bool("ENABLE_TIKTOK", False))
     enable_instagram: bool = field(
         default_factory=lambda: _bool("ENABLE_INSTAGRAM", False)

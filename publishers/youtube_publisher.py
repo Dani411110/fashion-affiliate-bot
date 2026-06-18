@@ -140,11 +140,11 @@ class YouTubePublisher(BasePublisher):
         logger.info("YouTubePublisher initialised (simple image slideshow for YouTube)")
 
     def _bootstrap_token(self):
-        """Write YOUTUBE_TOKEN_JSON env var to disk if token file is missing."""
-        if self._token_json and not self._token_path.exists():
+        """Write YOUTUBE_TOKEN_JSON env var to disk, always overwriting stale files."""
+        if self._token_json:
             self._token_path.parent.mkdir(parents=True, exist_ok=True)
             self._token_path.write_text(self._token_json, encoding="utf-8")
-            logger.info("YouTube token bootstrapped from env var to {}", self._token_path)
+            logger.info("YouTube token written from env var to {}", self._token_path)
 
     def _get_service(self):
         if self._service:
@@ -165,20 +165,11 @@ class YouTubePublisher(BasePublisher):
                 creds = None
 
         if not creds or not creds.valid:
-            # Write secrets file if raw JSON string was passed
-            secrets_path = self._secrets_json
-            if not Path(secrets_path).exists():
-                tmp = Path("data/youtube_client_secrets.json")
-                tmp.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(self._secrets_json, encoding="utf-8")
-                secrets_path = str(tmp)
-
-            flow = InstalledAppFlow.from_client_secrets_file(secrets_path, _YT_SCOPES)
-            oauth_port = int(os.getenv("YOUTUBE_OAUTH_PORT", "8081"))
-            creds = flow.run_local_server(port=oauth_port)
-            self._token_path.parent.mkdir(parents=True, exist_ok=True)
-            self._token_path.write_text(creds.to_json(), encoding="utf-8")
-            logger.info("YouTube OAuth token saved to {}", self._token_path)
+            raise RuntimeError(
+                "YouTube OAuth token lipsa sau expirat. "
+                "Ruleaza 'python main.py youtube-auth-url' local, completeaza OAuth, "
+                "apoi seteaza YOUTUBE_TOKEN_JSON in Railway Variables."
+            )
 
         self._service = build("youtube", "v3", credentials=creds, cache_discovery=False)
         return self._service

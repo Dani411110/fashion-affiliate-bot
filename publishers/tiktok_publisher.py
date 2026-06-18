@@ -91,7 +91,11 @@ class TikTokPublisher(BasePublisher):
         self, image_paths: List[Path], caption: str
     ) -> Optional[PublishResult]:
         """Automate the TikTok web upload UI using saved cookies."""
-        from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+        try:
+            from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+        except ImportError:
+            logger.warning("Playwright nu este instalat — browser strategy indisponibila")
+            return None
 
         if not self._cookies_path.exists():
             logger.warning("TikTok cookies not found at {}", self._cookies_path)
@@ -127,16 +131,25 @@ class TikTokPublisher(BasePublisher):
         cookies = [_normalise(c) for c in cookies_raw if c.get("name") or c.get("Name")]
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--window-size=1280,900",
-                ],
-            )
+            try:
+                browser = await pw.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--window-size=1280,900",
+                    ],
+                )
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ("could not locate", "executable", "not found", "browser")):
+                    logger.warning("Playwright Chromium nu este instalat pe acest server: {}", exc)
+                else:
+                    logger.warning("Playwright Chromium nu poate fi lansat: {}", exc)
+                return None
+
             context = await browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -279,9 +292,9 @@ class TikTokPublisher(BasePublisher):
         result = PublishResult(
             success=False,
             error=(
-                "All TikTok upload strategies failed. "
-                "Options: (1) Set TIKTOK_ACCESS_TOKEN in .env for API access, "
-                "(2) Re-export fresh TikTok browser cookies to TIKTOK_COOKIES_PATH."
+                "TikTok: lipsesc credentialele. "
+                "Seteaza TIKTOK_ACCESS_TOKEN in Railway Variables "
+                "sau exporta cookies TikTok la TIKTOK_COOKIES_PATH."
             ),
         )
         logger.error("TikTok publish failed for post {} — marking failed, continuing", post_package.post_id)

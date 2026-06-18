@@ -103,18 +103,6 @@ def _publish_package(package: PostPackage):
     settings = get_settings()
     publishers = []
 
-    if settings.enable_reddit:
-        from publishers.reddit_publisher import RedditPublisher
-        publishers.append(
-            RedditPublisher(
-                settings.reddit_client_id,
-                settings.reddit_client_secret,
-                settings.reddit_username,
-                settings.reddit_password,
-                settings.reddit_user_agent,
-                settings.reddit_subreddit,
-            )
-        )
     if settings.enable_tiktok:
         from publishers.tiktok_publisher import TikTokPublisher
         publishers.append(

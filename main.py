@@ -17,7 +17,6 @@ console = Console()
 
 def _platform_rows(settings):
     return [
-        ("Reddit", settings.enable_reddit, bool(settings.reddit_client_id)),
         ("Instagram", settings.enable_instagram, bool(settings.instagram_access_token and settings.instagram_user_id)),
         ("TikTok", settings.enable_tiktok, bool(settings.tiktok_access_token or Path(settings.tiktok_cookies_path).exists())),
         ("YouTube", settings.enable_youtube, bool(settings.youtube_client_secrets_json)),
@@ -208,38 +207,6 @@ def platform_test(live: bool):
 
     def ok(value: bool) -> str:
         return "[green]OK[/green]" if value else "[red]MISSING[/red]"
-
-    reddit_ready = all([
-        s.reddit_client_id,
-        s.reddit_client_secret,
-        s.reddit_username,
-        s.reddit_password,
-        s.reddit_subreddit,
-    ])
-    reddit_test = "not run"
-    if live and reddit_ready:
-        try:
-            import praw
-            reddit = praw.Reddit(
-                client_id=s.reddit_client_id,
-                client_secret=s.reddit_client_secret,
-                username=s.reddit_username,
-                password=s.reddit_password,
-                user_agent=s.reddit_user_agent,
-            )
-            me = reddit.user.me()
-            subreddit = reddit.subreddit(s.reddit_subreddit)
-            _ = subreddit.display_name
-            reddit_test = f"auth OK as u/{me}"
-        except Exception as exc:
-            reddit_test = f"FAIL: {str(exc)[:90]}"
-    table.add_row(
-        "Reddit",
-        onoff(s.enable_reddit),
-        ok(reddit_ready),
-        reddit_test,
-        "Add Reddit app client_id/client_secret, then ENABLE_REDDIT=true" if not reddit_ready else "Ready for approval publish test",
-    )
 
     instagram_ready = bool(s.instagram_access_token and s.instagram_user_id)
     drive_ready = bool(s.drive_folder_queue_id)
@@ -617,7 +584,6 @@ def write_status_report():
         "- YouTube: finish OAuth and copy `data/youtube_token.json`/client secrets into Railway strategy before enabling.",
         "- TikTok: wait for review, then run `python main.py tiktok-auth-url` and `python main.py tiktok-exchange-code <code>`.",
         "- Instagram: wait for Meta pending role/review, then add token/user id.",
-        "- Reddit: wait for API approval, then add credentials.",
         "- Keep platform toggles OFF until each platform passes `python main.py platform-test --live`.",
     ]
     Path("PROJECT_STATUS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -677,28 +643,7 @@ def setup():
         console.print(f"[red]✗ OpenAI:[/red] {exc}")
         errors.append(str(exc))
 
-    # 6. Reddit
-    try:
-        from config.settings import get_settings
-        s = get_settings()
-        if s.reddit_client_id:
-            import praw
-            reddit = praw.Reddit(
-                client_id=s.reddit_client_id,
-                client_secret=s.reddit_client_secret,
-                username=s.reddit_username,
-                password=s.reddit_password,
-                user_agent=s.reddit_user_agent,
-            )
-            _ = reddit.user.me()
-            console.print(f"[green]✓[/green] Reddit authenticated as u/{s.reddit_username}")
-        else:
-            console.print("[yellow]~[/yellow] Reddit: not configured (ENABLE_REDDIT=false)")
-    except Exception as exc:
-        console.print(f"[red]✗ Reddit:[/red] {exc}")
-        errors.append(str(exc))
-
-    # 7. Playwright
+    # 6. Playwright
     try:
         import subprocess
         result = subprocess.run(

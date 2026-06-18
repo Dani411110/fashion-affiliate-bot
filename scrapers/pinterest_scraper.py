@@ -107,12 +107,22 @@ async def _scrape_keyword(
         await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         await asyncio.sleep(random.uniform(2.0, 4.0))
 
-        # Detect login wall
+        # Detect hard login redirect (URL changes to /login or /accounts/login)
+        # NOTE: Pinterest shows a login *overlay* on search pages (input[name='id'] in DOM)
+        # but the URL stays on /search/pins/ — that's NOT a wall, images are still loadable.
         page_url = page.url
-        has_login_input = await page.query_selector("input[name='id']")
-        if has_login_input or "login" in page_url or "accounts/login" in page_url:
-            logger.error("Pinterest login wall for '{}' — URL: {}", keyword, page_url)
-            return -1  # distinct signal: login wall, not just 0 results
+        if "/login" in page_url or "accounts/login" in page_url:
+            logger.error("Pinterest login redirect for '{}' — URL: {}", keyword, page_url)
+            return -1  # distinct signal: hard redirect to login page
+
+        # Try to dismiss any login modal/overlay before scraping
+        try:
+            close_btn = await page.query_selector("[data-test-id='closeup-close-button'], [aria-label='Close'], button[class*='close']")
+            if close_btn:
+                await close_btn.click()
+                await asyncio.sleep(0.5)
+        except Exception:
+            pass
 
         image_urls = await _extract_pin_images(page, count=max(50, target_count * 3))
         logger.info("Found {} candidate URLs for '{}'", len(image_urls), keyword)

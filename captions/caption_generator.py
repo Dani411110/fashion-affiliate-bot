@@ -12,7 +12,7 @@ from utils.retry import retry_on_api_error
 
 logger = get_logger(__name__)
 
-PLATFORMS = ("reddit", "tiktok", "instagram", "youtube")
+PLATFORMS = ("tiktok", "instagram", "youtube")
 
 _GENERATION_PROMPT = """You are a fashion content creator. Write content for a social media post.
 
@@ -32,11 +32,6 @@ CAPTION — 1 sentence only, English, max 10 words. Example: "links below 👇" 
 HASHTAGS — English, relevant to category and items."""
 
 _FALLBACK_CAPTIONS = {
-    "reddit": {
-        "title": "",  # overridden by category name
-        "caption": "links below 👇",
-        "hashtags": ["fashion", "streetwear", "outfitinspo", "affordablefashion", "ootd"],
-    },
     "tiktok": {
         "title": "",
         "caption": "shop the fit 🛍",
@@ -133,7 +128,7 @@ class CaptionGenerator:
                 "Caption generation failed for {} / {} — using fallback: {}",
                 category_name, platform, exc,
             )
-            fallback = dict(_FALLBACK_CAPTIONS.get(platform, _FALLBACK_CAPTIONS["reddit"]))
+            fallback = dict(_FALLBACK_CAPTIONS.get(platform, _FALLBACK_CAPTIONS["instagram"]))
             fallback["title"] = title
             return fallback
 

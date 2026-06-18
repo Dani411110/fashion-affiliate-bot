@@ -60,11 +60,9 @@ POSTS_PER_SESSION = 3
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _category_keyboard() -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(f"{k}. {v}", callback_data=f"cat:{k}")]
-        for k, v in CATEGORY_NAMES.items()
-    ]
-    return InlineKeyboardMarkup(buttons)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Generează post", callback_data="cat:0")],
+    ])
 
 
 def _image_count_keyboard(category_num: int) -> InlineKeyboardMarkup:
@@ -96,7 +94,6 @@ def _platform_keyboard(post_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("📸 Instagram", callback_data=f"pub:{post_id}:instagram"),
-            InlineKeyboardButton("🤖 Reddit",    callback_data=f"pub:{post_id}:reddit"),
         ],
         [
             InlineKeyboardButton("🌐 Toate platformele", callback_data=f"pub:{post_id}:all"),
@@ -148,7 +145,6 @@ def _help_text() -> str:
 def _platform_status_lines() -> list[str]:
     settings = get_settings()
     return [
-        f"Reddit: {'ON' if settings.enable_reddit else 'OFF'}",
         f"Instagram: {'ON' if settings.enable_instagram else 'OFF'}",
         f"TikTok: {'ON' if settings.enable_tiktok else 'OFF'}",
         f"YouTube: {'ON' if settings.enable_youtube else 'OFF'}",
@@ -174,7 +170,6 @@ def _readiness_text() -> str:
         ("TikTok OAuth app", bool(settings.tiktok_client_key and settings.tiktok_client_secret), "waiting review/token"),
         ("YouTube OAuth", bool(settings.youtube_client_secrets_json and Path("data/youtube_token.json").exists()), "token needed"),
         ("Instagram", bool(settings.instagram_access_token and settings.instagram_user_id), "pending Meta"),
-        ("Reddit", bool(settings.reddit_client_id and settings.reddit_client_secret), "pending API"),
     ]
     lines = ["*Readiness*", ""]
     for name, ok, detail in checks:
@@ -230,7 +225,7 @@ def _stock_blocking_message(image_count: int) -> Optional[str]:
 
 def _escape_md(text: str) -> str:
     """Escape Markdown v1 special chars in dynamic content."""
-    for ch in r"\_*`[]()":
+    for ch in r"\_*`[":
         text = text.replace(ch, f"\\{ch}")
     return text
 
@@ -244,16 +239,20 @@ def _format_preview(pkg) -> str:
         "*Produse:*",
     ]
     for idx, p in enumerate(pkg.products, start=1):
-        name = _escape_md(shorten(str(p.get("name", "Product")), width=42, placeholder="..."))
+        raw_name = shorten(str(p.get("name", "Product")), width=42, placeholder="...")
         price = float(p.get("price", 0) or 0)
         link = p.get("mulebuy_link", "")
-        lines.append(f"{idx}. [{name}]({link}) - ${price:.2f}")
+        price_str = f" - ${price:.2f}" if price > 0 else ""
+        if link:
+            # Strip chars that break link display text in Markdown v1
+            safe_name = raw_name.replace("]", "").replace("[", "").replace("_", " ").replace("*", "")
+            lines.append(f"{idx}. [{safe_name}]({link}){price_str}")
+        else:
+            lines.append(f"{idx}. {_escape_md(raw_name)}{price_str}")
 
-    reddit = _escape_md(shorten(pkg.formatted_captions.get("reddit", ""), width=700, placeholder="..."))
     tiktok = _escape_md(shorten(pkg.formatted_captions.get("tiktok", ""), width=500, placeholder="..."))
     instagram = _escape_md(shorten(pkg.formatted_captions.get("instagram", ""), width=500, placeholder="..."))
 
-    lines += ["", "*Reddit:*", reddit]
     lines += ["", "*TikTok:*", tiktok]
     lines += ["", "*Instagram:*", instagram]
     return "\n".join(lines)
@@ -380,13 +379,6 @@ async def _publish_package(pkg, platforms: set = None):
 
     def _do_publish():
         publishers = []
-        if settings.enable_reddit and _want("reddit"):
-            from publishers.reddit_publisher import RedditPublisher
-            publishers.append(RedditPublisher(
-                settings.reddit_client_id, settings.reddit_client_secret,
-                settings.reddit_username, settings.reddit_password,
-                settings.reddit_user_agent, settings.reddit_subreddit,
-            ))
         if settings.enable_instagram and _want("instagram"):
             from publishers.instagram_publisher import InstagramPublisher
             publishers.append(InstagramPublisher(
@@ -846,8 +838,8 @@ async def _handle_regen(update: Update, context: ContextTypes.DEFAULT_TYPE, post
         pkg.formatted_captions = new_fmt
         get_db().update_post_captions(
             post_id,
-            new_fmt.get("reddit", ""),
-            " ".join(f"#{h}" for h in new_caps.get("reddit", {}).get("hashtags", [])),
+            new_fmt.get("instagram", ""),
+            " ".join(f"#{h}" for h in new_caps.get("instagram", {}).get("hashtags", [])),
             captions_json=new_caps,
             formatted_captions_json=new_fmt,
         )
@@ -872,7 +864,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Callback data: {}", data)
     try:
         if data.startswith("cat:"):
-            await _handle_category(update, context, int(data.split(":")[1]))
+            import random as _random
+            cat_num = int(data.split(":")[1])
+            if cat_num == 0:
+                cat_num = _random.choice(list(CATEGORY_NAMES.keys()))
+            await _handle_category(update, context, cat_num)
         elif data.startswith("count:"):
             _, category_num, image_count = data.split(":")
             await _handle_image_count(

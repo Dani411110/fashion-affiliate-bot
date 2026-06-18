@@ -127,19 +127,6 @@ def _platform_readiness(settings: Settings) -> dict[str, Any]:
         ]
     )
     platforms = {
-        "reddit": {
-            "enabled": settings.enable_reddit,
-            "configured": all(
-                [
-                    settings.reddit_client_id,
-                    settings.reddit_client_secret,
-                    settings.reddit_username,
-                    settings.reddit_password,
-                    settings.reddit_subreddit,
-                ]
-            ),
-            "next_action": "Waiting for Reddit API credentials/approval",
-        },
         "instagram": {
             "enabled": settings.enable_instagram,
             "configured": bool(settings.instagram_access_token and settings.instagram_user_id and drive_ready),
@@ -188,7 +175,6 @@ def _status_payload(settings: Settings) -> dict[str, Any]:
         "sqlite_path": str(settings.sqlite_path),
         "debug_ui_auth": "enabled" if os.getenv("DEBUG_UI_TOKEN") else "disabled",
         "platforms": {
-            "reddit": settings.enable_reddit,
             "instagram": settings.enable_instagram,
             "tiktok": settings.enable_tiktok,
             "youtube": settings.enable_youtube,

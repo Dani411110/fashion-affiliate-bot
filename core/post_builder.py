@@ -271,16 +271,21 @@ class PostBuilder:
                     logger.exception("Failed to stage image {} for public serving", i)
         else:
             # Fallback to source URLs when Railway domain not available
-            logger.warning("RAILWAY_PUBLIC_DOMAIN not set — using source image URLs")
-            public_image_urls.append(pinterest_record.get("url", ""))
+            # Only include real http/https URLs — file:// paths (repgalaxy) can't be fetched by external APIs
+            logger.warning("RAILWAY_PUBLIC_DOMAIN not set — using source image URLs (file:// paths excluded)")
+            pinterest_url = pinterest_record.get("url", "")
+            if pinterest_url.startswith("http"):
+                public_image_urls.append(pinterest_url)
             for p in selected_products:
-                public_image_urls.append(p.get("image_url", ""))
+                img_url = p.get("image_url", "")
+                if img_url.startswith("http"):
+                    public_image_urls.append(img_url)
 
         # Step 7 — Save post to SQLite as draft
         logger.info("[7/7] Saving post draft to SQLite")
-        summary_caption = formatted.get("reddit", "")
+        summary_caption = formatted.get("instagram", "")
         summary_hashtags = " ".join(
-            f"#{h}" for h in captions.get("reddit", {}).get("hashtags", [])
+            f"#{h}" for h in captions.get("instagram", {}).get("hashtags", [])
         )
         post_id = self._db.create_post(
             category=category_name,
@@ -357,7 +362,7 @@ def package_from_db_record(record: Dict[str, Any]) -> PostPackage:
     captions = _json_dict("captions_json")
     formatted = _json_dict("formatted_captions_json")
     if not formatted and record.get("caption"):
-        formatted = {"reddit": record.get("caption", "")}
+        formatted = {"instagram": record.get("caption", "")}
 
     return PostPackage(
         post_id=record["id"],
