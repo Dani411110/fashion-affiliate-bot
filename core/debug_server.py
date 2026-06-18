@@ -26,6 +26,138 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 _STARTED_AT = datetime.now(timezone.utc)
+
+# ── Gallery cache (rebuilt on each /api/gallery/images request) ───────────────
+_gallery_cache: list[dict] = []
+
+
+def _refresh_gallery_cache() -> list[dict]:
+    global _gallery_cache
+    images: list[dict] = []
+    idx = 0
+
+    # Pinterest unused
+    try:
+        for row in get_db().get_all_unused_pinterest_images():
+            lp = row.get("local_path", "")
+            if lp:
+                images.append({
+                    "id": idx, "type": "pinterest",
+                    "name": Path(lp).name,
+                    "local_path": lp, "db_id": row["id"],
+                })
+                idx += 1
+    except Exception:
+        pass
+
+    # Repgalaxy
+    repgalaxy_dir = Path("data/repgalaxy_images")
+    if repgalaxy_dir.exists():
+        for subdir in sorted(repgalaxy_dir.iterdir()):
+            if subdir.is_dir():
+                for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                    for p in sorted(subdir.glob(ext)):
+                        images.append({
+                            "id": idx, "type": "repgalaxy",
+                            "name": f"{subdir.name}/{p.name}",
+                            "local_path": str(p), "db_id": None,
+                        })
+                        idx += 1
+
+    _gallery_cache = images
+    return images
+
+
+def _gallery_html(token_query: str, token_value: str) -> str:
+    dash_link = f"/{token_query}"
+    return f"""<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gallery — Fashion Bot</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:Inter,ui-sans-serif,Arial,sans-serif;background:#101114;color:#f2f2f3;min-height:100vh}}
+    header{{padding:16px 24px;border-bottom:1px solid #2b2d35;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}}
+    h1{{font-size:20px;font-weight:700}}
+    #stats{{color:#a5a9b8;font-size:13px;margin-top:4px}}
+    .filters{{display:flex;gap:8px;padding:14px 24px 0}}
+    .fb{{padding:6px 16px;border-radius:999px;border:1px solid #2b2d35;background:#191b22;color:#f2f2f3;cursor:pointer;font-size:13px;transition:all .15s}}
+    .fb.active,.fb:hover{{background:#7c6fff;border-color:#7c6fff;color:#fff}}
+    .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:16px 24px 40px}}
+    .card{{position:relative;border-radius:8px;overflow:hidden;background:#191b22;border:1px solid #2b2d35;aspect-ratio:3/4;cursor:default}}
+    .card img{{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .2s}}
+    .overlay{{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.85));padding:8px 8px 6px}}
+    .badge{{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;margin-bottom:3px}}
+    .bp{{background:#c0392b;color:#fff}}.br{{background:#1a73e8;color:#fff}}
+    .name{{font-size:11px;color:#d0d0d0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}}
+    .xbtn{{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.65);border:none;color:#fff;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background .15s}}
+    .xbtn:hover{{background:#e53935}}
+    .gone{{opacity:.15;pointer-events:none}}
+    .empty{{grid-column:1/-1;text-align:center;padding:60px;color:#a5a9b8;font-size:16px}}
+    a{{color:#9f8cff;text-decoration:none}}
+    .loading{{text-align:center;padding:60px;color:#a5a9b8}}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🖼 Image Gallery</h1>
+    <div id="stats">Se încarcă...</div>
+  </div>
+  <a href="{dash_link}">← Dashboard</a>
+</header>
+<div class="filters">
+  <button class="fb active" data-f="all" onclick="setFilter(this,'all')">Toate</button>
+  <button class="fb" data-f="pinterest" onclick="setFilter(this,'pinterest')">Pinterest</button>
+  <button class="fb" data-f="repgalaxy" onclick="setFilter(this,'repgalaxy')">Repgalaxy</button>
+</div>
+<div class="grid" id="grid"><div class="loading">Se încarcă imaginile...</div></div>
+<script>
+const TOKEN='{token_value}';
+const Q=TOKEN?'?token='+TOKEN:'';
+let imgs=[],filter='all';
+async function load(){{
+  const r=await fetch('/api/gallery/images'+Q);
+  imgs=await r.json();
+  render();
+}}
+function setFilter(btn,f){{
+  filter=f;
+  document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}}
+function render(){{
+  const list=filter==='all'?imgs:imgs.filter(i=>i.type===filter);
+  const vis=list.filter(i=>!i.deleted);
+  const tot=imgs.filter(i=>!i.deleted).length;
+  const np=imgs.filter(i=>i.type==='pinterest'&&!i.deleted).length;
+  const nr=imgs.filter(i=>i.type==='repgalaxy'&&!i.deleted).length;
+  document.getElementById('stats').textContent=tot+' poze · '+np+' Pinterest · '+nr+' Repgalaxy';
+  const g=document.getElementById('grid');
+  if(!vis.length){{g.innerHTML='<div class="empty">Nicio poză disponibilă</div>';return;}}
+  g.innerHTML=vis.map(i=>`
+    <div class="card" id="c${{i.id}}">
+      <img src="/gallery/img/${{i.id}}${{Q}}" loading="lazy" onerror="this.style.display='none'">
+      <button class="xbtn" onclick="del(${{i.id}})" title="Șterge">✕</button>
+      <div class="overlay">
+        <div class="badge ${{i.type==='pinterest'?'bp':'br'}}">${{i.type}}</div>
+        <div class="name">${{i.name}}</div>
+      </div>
+    </div>`).join('');
+}}
+async function del(id){{
+  if(!confirm('Ștergi această poză definitiv?'))return;
+  const r=await fetch('/gallery/delete'+Q,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id}})}});
+  if(r.ok){{const i=imgs.find(x=>x.id===id);if(i)i.deleted=true;render();}}
+  else alert('Eroare la ștergere');
+}}
+load();
+</script>
+</body>
+</html>"""
 _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
     re.compile(r"ntn_[A-Za-z0-9_-]{12,}"),
@@ -451,10 +583,42 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
         def log_message(self, fmt: str, *args):
             logger.debug("Debug UI: " + fmt, *args)
 
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            if not _authorized(query):
+                _json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+                return
+            if parsed.path == "/gallery/delete":
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+                img_id = body.get("id")
+                if img_id is None or img_id >= len(_gallery_cache):
+                    _json_response(self, {"error": "invalid id"}, HTTPStatus.BAD_REQUEST)
+                    return
+                img = _gallery_cache[img_id]
+                # Delete from DB (Pinterest) or disk (repgalaxy)
+                try:
+                    if img["type"] == "pinterest" and img.get("db_id"):
+                        get_db().delete_pinterest_image(img["db_id"])
+                    local = Path(img["local_path"])
+                    if local.exists():
+                        local.unlink()
+                    logger.info("Gallery: deleted {} image {}", img["type"], local.name)
+                    _json_response(self, {"ok": True})
+                except Exception as exc:
+                    logger.exception("Gallery delete failed")
+                    _json_response(self, {"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            else:
+                _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
+
         def do_GET(self):
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             token_query = f"?token={html.escape(query.get('token', [''])[0])}" if query.get("token") else ""
+            token_value = (query.get("token") or [""])[0]
+
+            # Auth check — /images/ and public paths skip it
             if (not parsed.path.startswith("/images/")
                     and parsed.path not in _PUBLIC_PATHS
                     and not _authorized(query)):
@@ -472,6 +636,35 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _json_response(self, {"log_file": str(log_file) if log_file else "", "lines": _tail_file(log_file, 120) if log_file else []})
             elif parsed.path == "/":
                 _html_response(self, _dashboard_html(settings, token_query))
+            elif parsed.path == "/gallery":
+                _html_response(self, _gallery_html(token_query, token_value))
+            elif parsed.path == "/api/gallery/images":
+                imgs = _refresh_gallery_cache()
+                _json_response(self, [{"id": i["id"], "type": i["type"], "name": i["name"]} for i in imgs])
+            elif parsed.path.startswith("/gallery/img/"):
+                img_id_str = parsed.path[len("/gallery/img/"):]
+                try:
+                    img_id = int(img_id_str)
+                    if img_id >= len(_gallery_cache):
+                        raise ValueError("out of range")
+                    img = _gallery_cache[img_id]
+                    local = Path(img["local_path"])
+                    # Resolve relative paths from project root
+                    if not local.is_absolute():
+                        local = (Path(__file__).resolve().parents[1] / local).resolve()
+                    if not local.exists():
+                        _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
+                        return
+                    mime_type, _ = mimetypes.guess_type(str(local))
+                    content = local.read_bytes()
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", mime_type or "image/jpeg")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.send_header("Cache-Control", "max-age=300")
+                    self.end_headers()
+                    self.wfile.write(content)
+                except (ValueError, IndexError):
+                    _json_response(self, {"error": "invalid id"}, HTTPStatus.BAD_REQUEST)
             elif parsed.path == "/privacy":
                 _html_response(self, _privacy_html())
             elif parsed.path == "/terms":
