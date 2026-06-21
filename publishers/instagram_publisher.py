@@ -183,14 +183,22 @@ class InstagramPublisher(BasePublisher):
             try:
                 media_id = self._publish_one(public_urls, caption, idx)
                 media_ids.append(media_id)
-            except requests.HTTPError as exc:
-                body = exc.response.text[:200] if exc.response else ""
-                err = f"Post {idx} HTTP {exc.response.status_code if exc.response else '?'}: {body}"
+            except Exception as exc:
+                # Extract useful error from HTTPError or any wrapper (e.g. RetryError)
+                cause = exc
+                while getattr(cause, "__cause__", None) or getattr(cause, "__context__", None):
+                    cause = cause.__cause__ or cause.__context__
+                if isinstance(cause, requests.HTTPError) and getattr(cause, "response", None) is not None:
+                    resp = cause.response
+                    try:
+                        detail = resp.json().get("error", {}).get("message", resp.text[:200])
+                    except Exception:
+                        detail = resp.text[:200]
+                    err = f"Post {idx} HTTP {resp.status_code}: {detail}"
+                else:
+                    err = f"Post {idx}: {exc}"
                 logger.error("IG post {}/2 failed: {}", idx, err)
                 errors.append(err)
-            except Exception as exc:
-                logger.exception("IG post {}/2 failed", idx)
-                errors.append(f"Post {idx}: {exc}")
 
         if media_ids:
             url = f"https://www.instagram.com/p/{media_ids[0]}/"
