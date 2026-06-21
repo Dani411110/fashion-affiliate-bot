@@ -17,7 +17,7 @@ from utils.retry import retry_on_network_error
 
 logger = get_logger(__name__)
 
-_GRAPH_BASE = "https://graph.facebook.com/v21.0"
+_GRAPH_BASE = "https://graph.instagram.com/v21.0"
 _MAX_CAROUSEL_ITEMS = 10   # Instagram carousel limit
 _POLL_INTERVAL = 5
 _POLL_TIMEOUT = 120
