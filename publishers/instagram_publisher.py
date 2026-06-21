@@ -37,14 +37,14 @@ class InstagramPublisher(BasePublisher):
     def _create_item_container(self, image_url: str) -> str:
         """Upload one image as a carousel item. Returns container_id."""
         url = f"{_GRAPH_BASE}/{self._user_id}/media"
-        payload = {
-            "image_url": image_url,
-            "is_carousel_item": "true",
-            "access_token": self._token,
-        }
-        resp = requests.post(url, data=payload, timeout=30)
+        resp = requests.post(
+            url,
+            params={"access_token": self._token},
+            data={"image_url": image_url, "is_carousel_item": "true"},
+            timeout=30,
+        )
         if not resp.ok:
-            logger.error("IG container 400 body: {}", resp.text[:500])
+            logger.error("IG container {} body: {}", resp.status_code, resp.text[:500])
         resp.raise_for_status()
         container_id = resp.json()["id"]
         logger.debug("IG item container created: {}", container_id)
@@ -56,13 +56,14 @@ class InstagramPublisher(BasePublisher):
     def _create_carousel_container(self, children: List[str], caption: str) -> str:
         """Create a CAROUSEL container from a list of item container IDs."""
         url = f"{_GRAPH_BASE}/{self._user_id}/media"
-        payload = {
-            "media_type": "CAROUSEL",
-            "children": ",".join(children),
-            "caption": caption,
-            "access_token": self._token,
-        }
-        resp = requests.post(url, data=payload, timeout=30)
+        resp = requests.post(
+            url,
+            params={"access_token": self._token},
+            data={"media_type": "CAROUSEL", "children": ",".join(children), "caption": caption},
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error("IG carousel {} body: {}", resp.status_code, resp.text[:500])
         resp.raise_for_status()
         carousel_id = resp.json()["id"]
         logger.debug("IG carousel container created: {}", carousel_id)
@@ -78,7 +79,7 @@ class InstagramPublisher(BasePublisher):
                     f"{_GRAPH_BASE}/{container_id}",
                     params={"fields": "status_code", "access_token": self._token},
                     timeout=15,
-                )
+                )  # token passed as query param (standard for Graph API)
                 resp.raise_for_status()
                 status = resp.json().get("status_code", "")
                 logger.debug("IG container {} status: {}", container_id, status)
@@ -99,11 +100,14 @@ class InstagramPublisher(BasePublisher):
     def _publish_container(self, carousel_id: str) -> str:
         """Publish the carousel container. Returns media_id."""
         url = f"{_GRAPH_BASE}/{self._user_id}/media_publish"
-        payload = {
-            "creation_id": carousel_id,
-            "access_token": self._token,
-        }
-        resp = requests.post(url, data=payload, timeout=30)
+        resp = requests.post(
+            url,
+            params={"access_token": self._token},
+            data={"creation_id": carousel_id},
+            timeout=30,
+        )
+        if not resp.ok:
+            logger.error("IG publish {} body: {}", resp.status_code, resp.text[:500])
         resp.raise_for_status()
         media_id = resp.json()["id"]
         logger.info("IG carousel published media_id={}", media_id)
