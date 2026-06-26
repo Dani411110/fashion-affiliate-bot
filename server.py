@@ -80,7 +80,7 @@ async def main():
         hour, minute = _parse_time(slot)
         scheduler.add_job(
             scheduled_post_job,
-            CronTrigger(hour=hour, minute=minute),
+            CronTrigger(hour=hour, minute=minute, timezone="Europe/Bucharest"),
             args=[bot, settings.telegram_chat_id],
             id=f"post_{slot.replace(':', '')}",
             replace_existing=True,
