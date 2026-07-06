@@ -70,6 +70,17 @@ async def main():
     )
     debug_server = start_debug_server(settings)
 
+    # One-shot maintenance: drain any stuck "scheduled" posts to "draft" on boot.
+    # Set DRAIN_SCHEDULED_ONCE=1 in Railway Variables, redeploy, then remove it.
+    if os.getenv("DRAIN_SCHEDULED_ONCE") == "1":
+        from database.sqlite_db import get_db
+        stuck = get_db().get_posts_by_status("scheduled")
+        for p in stuck:
+            get_db().mark_post_status(p["id"], "draft")
+        logger.warning(
+            "DRAIN_SCHEDULED_ONCE: moved {} stuck scheduled post(s) to draft", len(stuck)
+        )
+
     app = build_application()
     bot = app.bot
 

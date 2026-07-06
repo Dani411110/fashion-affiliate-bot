@@ -1295,6 +1295,13 @@ async def scheduled_post_job(bot: Bot, chat_id: int):
     try:
         pkg = package_from_db_record(record)
         results = await _publish_package(pkg)
+        # Always move the post out of the "scheduled" queue after one attempt.
+        # _publish_package marks it "posted" when any platform succeeds; if every
+        # platform failed we mark it "failed" here. Otherwise the post stays
+        # "scheduled" and is re-picked every slot, publishing the same content on
+        # repeat (the infinite-repost bug).
+        if results and not any(result.success for _, result in results):
+            get_db().mark_post_status(post_id, "failed")
         remaining = len(get_db().get_posts_by_status("scheduled"))
 
         if not results:
