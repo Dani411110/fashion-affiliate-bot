@@ -25,7 +25,13 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 _MIN_DIM = 400
-_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://mulebuy.gg/",
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 _TIMEOUT = 20
 
 
@@ -64,6 +70,7 @@ def _download_one(product: dict, dest_dir: Path) -> Tuple[int, bool, str]:
 
     except Exception as exc:
         dest.unlink(missing_ok=True)
+        logger.warning("cache fail [{}] {} -> {}", idx, url[:90], str(exc)[:80])
         return idx, False, str(exc)[:80]
 
 
