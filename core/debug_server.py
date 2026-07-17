@@ -609,6 +609,36 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 except Exception as exc:
                     logger.exception("Gallery delete failed")
                     _json_response(self, {"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            elif parsed.path == "/api/scrape":
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+                action = body.get("action")
+                count = int(body.get("count", 20))
+                if action not in ("products", "cacheimages", "pinterest"):
+                    _json_response(self, {"error": "invalid action"}, HTTPStatus.BAD_REQUEST)
+                    return
+
+                def _bg(action=action, count=count):
+                    try:
+                        if action == "products":
+                            from scrapers.mulebuy_scraper import scrape_mulebuy
+                            res = scrape_mulebuy(per_category=count)
+                            logger.info("[api/scrape] products DONE: {} saved", len(res) if res else 0)
+                        elif action == "cacheimages":
+                            from scrapers.image_cache import cache_product_images
+                            res = cache_product_images()
+                            logger.info("[api/scrape] cacheimages DONE: {}", res)
+                        elif action == "pinterest":
+                            from scrapers.pinterest_scraper import scrape_batch
+                            res = scrape_batch(target_count=count)
+                            logger.info("[api/scrape] pinterest DONE: {} saved", res)
+                    except Exception:
+                        logger.exception("[api/scrape] {} FAILED", action)
+
+                import threading as _threading
+                _threading.Thread(target=_bg, daemon=True, name=f"scrape-{action}").start()
+                logger.info("[api/scrape] STARTED action={} count={}", action, count)
+                _json_response(self, {"ok": True, "started": action, "count": count})
             else:
                 _json_response(self, {"error": "not found"}, HTTPStatus.NOT_FOUND)
 
