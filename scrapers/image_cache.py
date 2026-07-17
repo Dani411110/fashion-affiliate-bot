@@ -40,7 +40,9 @@ def _download_one(product: dict, dest_dir: Path) -> Tuple[int, bool, str]:
     idx = product["sheet_row_index"]
     url = product.get("image_url", "")
     if not url:
+        logger.warning("cache skip [{}] EMPTY image_url (name={!r})", idx, str(product.get("name",""))[:40])
         return idx, False, "no image_url"
+    logger.debug("cache try [{}] {}", idx, url[:100])
 
     dest = dest_dir / f"{idx}.jpg"
 
