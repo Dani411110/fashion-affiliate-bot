@@ -42,7 +42,7 @@ def _download_one(product: dict, dest_dir: Path) -> Tuple[int, bool, str]:
     if not url:
         logger.warning("cache skip [{}] EMPTY image_url (name={!r})", idx, str(product.get("name",""))[:40])
         return idx, False, "no image_url"
-    logger.debug("cache try [{}] {}", idx, url[:100])
+    logger.info("cache try [{}] {}", idx, url[:110])
 
     dest = dest_dir / f"{idx}.jpg"
 
@@ -116,7 +116,7 @@ def cache_product_images(max_workers: int = 5, force: bool = False) -> dict:
                     logger.info("  cached {}/{}", downloaded, total)
             else:
                 failed += 1
-                logger.debug("  skip #{}: {}", idx, info)
+                logger.info("  skip #{}: {}", idx, info)
 
     skipped = total - downloaded - failed
     logger.info(
