@@ -299,7 +299,7 @@ def platform_test(live: bool):
 @cli.command("tiktok-auth-url")
 @click.option(
     "--scopes",
-    default="user.info.basic,video.upload,video.publish",
+    default="video.upload,video.publish",
     show_default=True,
     help="Comma-separated TikTok OAuth scopes.",
 )
