@@ -1,4 +1,4 @@
-"""Tiny read-only debug dashboard for Railway.
+﻿"""Tiny read-only debug dashboard for Railway.
 
 The dashboard intentionally has no mutation endpoints. It is meant to answer:
 is the bot alive, what DB does it see, and what did it log recently?
@@ -75,7 +75,7 @@ def _gallery_html(token_query: str, token_value: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Gallery — Fashion Bot</title>
+  <title>Gallery — Fashion Affiliate Bot</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
     body{{font-family:Inter,ui-sans-serif,Arial,sans-serif;background:#101114;color:#f2f2f3;min-height:100vh}}
@@ -365,7 +365,7 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="15">
-  <title>Fashion Bot Debug</title>
+  <title>Fashion Affiliate Bot Debug</title>
   <style>
     :root {{ color-scheme: dark; }}
     body {{ margin:0; font-family: Inter, ui-sans-serif, system-ui, Arial, sans-serif; background:#101114; color:#f2f2f3; }}
@@ -389,7 +389,7 @@ def _dashboard_html(settings: Settings, token_query: str) -> str:
 <body>
   <header>
     <div>
-      <h1>Fashion Bot Debug</h1>
+      <h1>Fashion Affiliate Bot Debug</h1>
       <div class="muted">Auto-refresh every 15s. Read-only.</div>
     </div>
     <nav><a href="{refresh_url}">Refresh</a> · <a href="{api_status}">API status</a> · <a href="{api_logs}">API logs</a></nav>
@@ -412,7 +412,7 @@ def _legal_page_html(title: str, body: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{html.escape(title)} - Fashion Bot</title>
+  <title>{html.escape(title)} - Fashion Affiliate Bot</title>
   <style>
     body {{ margin:0; font-family: Arial, sans-serif; background:#fafafa; color:#171717; }}
     main {{ max-width:760px; margin:0 auto; padding:48px 24px; line-height:1.65; }}
@@ -432,7 +432,7 @@ def _legal_page_html(title: str, body: str) -> str:
 
 def _privacy_html() -> str:
     body = """
-    <p>Fashion Bot is an internal operator tool for preparing, reviewing, and publishing fashion affiliate content to connected social accounts.</p>
+    <p>Fashion Affiliate Bot is an internal operator tool for preparing, reviewing, and publishing fashion affiliate content to connected social accounts.</p>
     <p>The service may process account identifiers, approved post captions, image URLs, and publishing status for the sole purpose of operating the content workflow.</p>
     <p>We do not sell personal data. Access tokens are stored as environment secrets and are used only to publish content that the operator manually approves.</p>
     <p>To request deletion of app-related data, contact the app owner through the connected developer account.</p>
@@ -442,7 +442,7 @@ def _privacy_html() -> str:
 
 def _terms_html() -> str:
     body = """
-    <p>Fashion Bot is provided as an internal automation tool for managing fashion affiliate content workflows.</p>
+    <p>Fashion Affiliate Bot is provided as an internal automation tool for managing fashion affiliate content workflows.</p>
     <p>The operator is responsible for reviewing all generated content, complying with platform rules, and ensuring that affiliate links and disclosures are accurate.</p>
     <p>The tool does not guarantee successful publication to third-party platforms and may be limited by API availability, account permissions, or platform review decisions.</p>
     <p>By using this service, the operator agrees to publish only approved content and to maintain valid credentials for connected accounts.</p>
@@ -521,7 +521,7 @@ def _tiktok_demo_html() -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fashion Bot TikTok Demo</title>
+  <title>Fashion Affiliate Bot TikTok Demo</title>
   <style>
     body { margin:0; font-family: Arial, sans-serif; background:#0f1014; color:#f7f7f8; }
     main { max-width:920px; margin:0 auto; padding:42px 22px; }
@@ -537,9 +537,9 @@ def _tiktok_demo_html() -> str:
 </head>
 <body>
   <main>
-    <h1>Fashion Bot TikTok Integration Demo</h1>
+    <h1>Fashion Affiliate Bot TikTok Integration Demo</h1>
     <p>
-      Fashion Bot prepares fashion affiliate drafts, sends them to the operator for Telegram approval,
+      Fashion Affiliate Bot prepares fashion affiliate drafts, sends them to the operator for Telegram approval,
       and publishes only approved posts to connected social accounts.
     </p>
     <a class="button" href="/tiktok/callback">TikTok callback endpoint active</a>
