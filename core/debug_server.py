@@ -215,7 +215,18 @@ _PUBLIC_PATHS = {
     "/youtube/callback/",
 }
 
-_TIKTOK_SITE_VERIFICATION = "tiktok-developers-site-verification=jfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq"
+# TikTok "URL prefix" ownership checks ask you to host tiktok<code>.txt containing
+# tiktok-developers-site-verification=<code>. The code changes every time a new
+# prefix is verified, so answer the whole family instead of hardcoding one file —
+# we control this origin, which is exactly what the check is proving.
+_TIKTOK_VERIFY_RE = re.compile(r"^(?:/tiktok/callback)?/tiktok([A-Za-z0-9]{16,64})\.txt$")
+
+
+def _tiktok_verification_body(path: str) -> str | None:
+    match = _TIKTOK_VERIFY_RE.match(path)
+    if not match:
+        return None
+    return f"tiktok-developers-site-verification={match.group(1)}"
 
 
 def _sanitize(text: str) -> str:
@@ -640,6 +651,7 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
             # Auth check — /images/ and public paths skip it
             if (not parsed.path.startswith("/images/")
                     and parsed.path not in _PUBLIC_PATHS
+                    and _tiktok_verification_body(parsed.path) is None
                     and not _authorized(query)):
                 _json_response(self, {"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
@@ -704,11 +716,8 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 _html_response(self, _tiktok_callback_html(query))
             elif parsed.path in {"/youtube/callback", "/youtube/callback/"}:
                 _html_response(self, _youtube_callback_html(query, settings))
-            elif parsed.path in {
-                "/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
-                "/tiktok/callback/tiktokjfxbs3iqzCMcq2dxj1SIJ0lILoUIXDnq.txt",
-            }:
-                _text_response(self, _TIKTOK_SITE_VERIFICATION)
+            elif _tiktok_verification_body(parsed.path) is not None:
+                _text_response(self, _tiktok_verification_body(parsed.path))
             elif parsed.path.startswith("/images/"):
                 filename = parsed.path[len("/images/"):]
                 if ".." in filename or filename.startswith("/"):
