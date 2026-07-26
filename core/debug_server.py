@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from config.settings import Settings
+from core import public_site
 from database.sqlite_db import get_db
 from utils.logger import get_logger
 
@@ -69,7 +70,7 @@ def _refresh_gallery_cache() -> list[dict]:
 
 
 def _gallery_html(token_query: str, token_value: str) -> str:
-    dash_link = f"/{token_query}"
+    dash_link = f"/admin{token_query}"
     return f"""<!doctype html>
 <html lang="ro">
 <head>
@@ -195,6 +196,14 @@ def _text_response(handler: BaseHTTPRequestHandler, body: str, status: int = 200
 
 _PUBLIC_PATHS = {
     "/health",
+    # Public website. These must stay unauthenticated: TikTok app review fetches
+    # "/" as the Website URL, and a token gate there is what produced the
+    # "Invalid Website URL" rejection.
+    "/",
+    "/how-it-works",
+    "/faq",
+    "/support",
+    "/connect",
     "/privacy",
     "/terms",
     "/tiktok/demo",
@@ -430,26 +439,6 @@ def _legal_page_html(title: str, body: str) -> str:
 </html>"""
 
 
-def _privacy_html() -> str:
-    body = """
-    <p>Fashion Affiliate Bot is an internal operator tool for preparing, reviewing, and publishing fashion affiliate content to connected social accounts.</p>
-    <p>The service may process account identifiers, approved post captions, image URLs, and publishing status for the sole purpose of operating the content workflow.</p>
-    <p>We do not sell personal data. Access tokens are stored as environment secrets and are used only to publish content that the operator manually approves.</p>
-    <p>To request deletion of app-related data, contact the app owner through the connected developer account.</p>
-    """
-    return _legal_page_html("Privacy Policy", body)
-
-
-def _terms_html() -> str:
-    body = """
-    <p>Fashion Affiliate Bot is provided as an internal automation tool for managing fashion affiliate content workflows.</p>
-    <p>The operator is responsible for reviewing all generated content, complying with platform rules, and ensuring that affiliate links and disclosures are accurate.</p>
-    <p>The tool does not guarantee successful publication to third-party platforms and may be limited by API availability, account permissions, or platform review decisions.</p>
-    <p>By using this service, the operator agrees to publish only approved content and to maintain valid credentials for connected accounts.</p>
-    """
-    return _legal_page_html("Terms of Service", body)
-
-
 def _tiktok_callback_html(query: dict[str, list[str]]) -> str:
     code = html.escape((query.get("code") or [""])[0])
     error = html.escape((query.get("error") or [""])[0])
@@ -665,6 +654,16 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 log_file = _latest_log_file()
                 _json_response(self, {"log_file": str(log_file) if log_file else "", "lines": _tail_file(log_file, 120) if log_file else []})
             elif parsed.path == "/":
+                _html_response(self, public_site.landing_html())
+            elif parsed.path == "/how-it-works":
+                _html_response(self, public_site.how_it_works_html())
+            elif parsed.path == "/faq":
+                _html_response(self, public_site.faq_html())
+            elif parsed.path == "/support":
+                _html_response(self, public_site.support_html())
+            elif parsed.path == "/connect":
+                _html_response(self, public_site.connect_html(settings))
+            elif parsed.path == "/admin":
                 _html_response(self, _dashboard_html(settings, token_query))
             elif parsed.path == "/gallery":
                 _html_response(self, _gallery_html(token_query, token_value))
@@ -696,9 +695,9 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
                 except (ValueError, IndexError):
                     _json_response(self, {"error": "invalid id"}, HTTPStatus.BAD_REQUEST)
             elif parsed.path == "/privacy":
-                _html_response(self, _privacy_html())
+                _html_response(self, public_site.privacy_html())
             elif parsed.path == "/terms":
-                _html_response(self, _terms_html())
+                _html_response(self, public_site.terms_html())
             elif parsed.path == "/tiktok/demo":
                 _html_response(self, _tiktok_demo_html())
             elif parsed.path in {"/tiktok/callback", "/tiktok/callback/"}:
