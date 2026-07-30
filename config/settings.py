@@ -144,7 +144,7 @@ class Settings:
     tiktok_redirect_uri: str = field(
         default_factory=lambda: _get(
             "TIKTOK_REDIRECT_URI",
-            "https://fashion-affiliate-bot-production-23ea.up.railway.app/tiktok/callback",
+            "https://fashionaffiliatebot.up.railway.app/tiktok/callback",
         )
     )
     # Optional: TikTok Content Posting API OAuth token (for Strategy 1)
