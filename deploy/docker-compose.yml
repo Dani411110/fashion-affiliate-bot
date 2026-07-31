@@ -1,0 +1,67 @@
+# Fashion Affiliate Bot — self-hosted deployment (Oracle Cloud / any Docker host).
+#
+# Replaces Railway. Two services:
+#   bot    — the scheduler + Telegram poller + public site, same image as before
+#   caddy  — reverse proxy that obtains and renews a Let's Encrypt certificate
+#
+# TikTok requires https:// for the Website URL and the OAuth redirect URI, and a
+# bare IP cannot get a certificate, so SITE_DOMAIN must be a real DNS name that
+# resolves to this host (a purchased domain, or a free one from DuckDNS).
+#
+# Usage:
+#   cp .env.example .env   # then fill it in
+#   docker compose up -d
+#   docker compose logs -f bot
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: fashion-affiliate-bot:latest
+    container_name: fashion-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # The app writes its SQLite DB, YouTube token and cached images here.
+      SQLITE_PATH: /data/fashion_bot.db
+      PORT: "8080"
+    volumes:
+      - bot-data:/data
+    expose:
+      - "8080"
+    # Chromium needs more than the default 64MB of shared memory or it crashes
+    # mid-scrape with "Target closed".
+    shm_size: "1gb"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: fashion-caddy
+    restart: unless-stopped
+    depends_on:
+      - bot
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:
+  caddy-data:
+  caddy-config:

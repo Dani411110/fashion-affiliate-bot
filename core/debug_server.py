@@ -674,7 +674,10 @@ def start_debug_server(settings: Settings) -> ThreadingHTTPServer | None:
             elif parsed.path == "/support":
                 _html_response(self, public_site.support_html())
             elif parsed.path == "/connect":
-                _html_response(self, public_site.connect_html(settings))
+                _html_response(
+                    self,
+                    public_site.connect_html(settings, self.headers.get("Host")),
+                )
             elif parsed.path == "/admin":
                 _html_response(self, _dashboard_html(settings, token_query))
             elif parsed.path == "/gallery":

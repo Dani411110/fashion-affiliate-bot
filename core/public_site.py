@@ -484,10 +484,27 @@ def support_html() -> str:
 
 # ── Connect ──────────────────────────────────────────────────────────────────
 
-def connect_html(settings: Settings) -> str:
-    connected = bool(settings.tiktok_access_token)
+def _redirect_uri(settings: Settings, request_host: str | None) -> str:
+    """Where TikTok should send the operator back after authorization.
 
-    if not settings.tiktok_client_key:
+    Derived from the host the request came in on, so renaming the deployment's
+    domain cannot silently produce an authorize URL pointing at a domain that no
+    longer resolves. TIKTOK_REDIRECT_URI still wins when set, because the value
+    registered in the TikTok app must match this exactly.
+    """
+    configured = (settings.tiktok_redirect_uri or "").strip()
+    if configured:
+        return configured
+    if request_host:
+        return f"https://{request_host}/tiktok/callback"
+    return ""
+
+
+def connect_html(settings: Settings, request_host: str | None = None) -> str:
+    connected = bool(settings.tiktok_access_token)
+    redirect_uri = _redirect_uri(settings, request_host)
+
+    if not settings.tiktok_client_key or not redirect_uri:
         action = (
             '<div class="note"><p>The TikTok integration is not configured on this deployment '
             "yet, so the authorization button is unavailable. If you are the operator, set "
@@ -498,7 +515,7 @@ def connect_html(settings: Settings) -> str:
             "client_key": settings.tiktok_client_key,
             "scope": "user.info.basic,video.publish",
             "response_type": "code",
-            "redirect_uri": settings.tiktok_redirect_uri,
+            "redirect_uri": redirect_uri,
             "state": secrets.token_urlsafe(16),
         }
         auth_url = "https://www.tiktok.com/v2/auth/authorize/?" + urlencode(params)

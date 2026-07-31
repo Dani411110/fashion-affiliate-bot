@@ -1,0 +1,27 @@
+# Caddy obtains and renews the Let's Encrypt certificate on its own; there is no
+# certbot step and no cron job to remember.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# The ops dashboard is not part of the public site. It stays reachable for the
+	# operator but is kept out of search engines and out of a reviewer's way.
+	@admin path /admin /admin/* /gallery /gallery/* /api/*
+	header @admin X-Robots-Tag "noindex, nofollow"
+
+	reverse_proxy bot:8080 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
+}
